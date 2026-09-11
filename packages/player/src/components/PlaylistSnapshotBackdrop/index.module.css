@@ -28,6 +28,10 @@
 	--playlist-snapshot-tint: 30%;
 }
 
+:global([data-amll-playlist-native-surface]) > .root {
+	background: transparent;
+}
+
 .snapshot {
 	position: absolute;
 	left: var(--playlist-snapshot-left);

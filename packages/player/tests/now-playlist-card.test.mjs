@@ -8,6 +8,7 @@ import {
 	getQueueDropIndex,
 	QUEUE_DRAG_THRESHOLD_PX,
 } from "../src/components/NowPlaylistCard/queue-drag.ts";
+import { getPlaylistUnderlayClip } from "../src/components/PlaylistSnapshotBackdrop/underlay-clip.ts";
 
 const readProjectFile = (path) =>
 	readFileSync(fileURLToPath(new URL(path, import.meta.url)), "utf8");
@@ -33,6 +34,12 @@ const playlistSnapshotBackdropStyle = readProjectFile(
 );
 const appContainerStyle = readProjectFile(
 	"../src/components/AppContainer/index.module.css",
+);
+const appContainer = readProjectFile(
+	"../src/components/AppContainer/index.tsx",
+);
+const nativePlaylistUnderlay = readProjectFile(
+	"../src/components/PlaylistSnapshotBackdrop/useNativePlaylistUnderlay.ts",
 );
 const settingsPage = readProjectFile("../src/pages/settings/index.tsx");
 const settingsPageStyle = readProjectFile(
@@ -82,12 +89,10 @@ test("队列行单击即可播放且当前歌曲有明确状态", () => {
 	assert.match(queueCardStyle, /border-left-color:\s*var\(--accent-9\)/);
 });
 
-test("队列弹层按首页背景来源选择原生材质或打开前快照", () => {
+test("Windows 队列弹层统一使用打开前快照并遮住未模糊的页面", () => {
 	const rootRule = queueCardStyle.match(/\.root\s*\{[\s\S]*?\}/)?.[0] ?? "";
 	const panelRule =
 		nowPlayingBarStyle.match(/\.playlistPanel\s*\{[\s\S]*?\}/)?.[0] ?? "";
-	const nativePanelRule =
-		nowPlayingBarStyle.match(/\.playlistPanelNative\s*\{[\s\S]*?\}/)?.[0] ?? "";
 	const snapshotPanelRule =
 		nowPlayingBarStyle.match(/\.playlistPanelSnapshot\s*\{[\s\S]*?\}/)?.[0] ??
 		"";
@@ -103,11 +108,11 @@ test("队列弹层按首页背景来源选择原生材质或打开前快照", ()
 	assert.match(panelRule, /background-color:\s*transparent/);
 	assert.doesNotMatch(panelRule, /backdrop-filter/);
 	assert.match(snapshotPanelRule, /background-color:\s*var\(--gray-2\)/);
+	assert.doesNotMatch(nowPlayingBarStyle, /\.playlistPanelNative/);
 	assert.match(
-		nativePanelRule,
-		/background-color:\s*color-mix\(in srgb, var\(--gray-2\) 58%, transparent\)/,
+		playlistSnapshotBackdropStyle,
+		/\.root\s*\{[\s\S]*background:\s*var\(--gray-2\)/,
 	);
-	assert.doesNotMatch(nativePanelRule, /backdrop-filter/);
 	assert.match(livePanelRule, /background-color:\s*color-mix/);
 	assert.match(livePanelRule, /backdrop-filter:\s*blur\(14px\)/);
 	assert.match(
@@ -158,20 +163,95 @@ test("普通队列挂载到播放栏合成边界之外并保留主题上下文",
 	);
 	assert.match(nowPlayingBar, /position="fixed"/);
 	assert.match(nowPlayingBar, /homeBackgroundLoadedAtom/);
-	assert.match(nowPlayingBar, /hasBackgroundAtom/);
-	assert.match(nowPlayingBar, /isCustomHomeBackground/);
+	assert.match(nowPlayingBar, /useNativeHomeMaterial/);
 	assert.match(nowPlayingBar, /playlistSnapshotSupported/);
 	assert.match(nowPlayingBar, /usePlaylistSnapshot/);
 	assert.match(
 		nowPlayingBar,
-		/useNativeHomeMaterial \|\|[\s\S]*!playlistSnapshotSupported \|\|[\s\S]*playlistBackdrop\.isReady/,
+		/!playlistSnapshotSupported \|\| playlistBackdrop\.isReady/,
 	);
 	assert.match(nowPlayingBar, /homeBackgroundConfig\.updatedAt/);
-	assert.match(nowPlayingBar, /styles\.playlistPanelNative/);
+	assert.match(
+		nowPlayingBar,
+		/homeBackgroundConfig\.updatedAt\}:\$\{isDarkTheme\}/,
+	);
+	assert.match(
+		nowPlayingBar,
+		/playlistSnapshotSupported\s*\? styles\.playlistPanelSnapshot\s*: styles\.playlistPanelLive/,
+	);
 	assert.match(nowPlayingBar, /styles\.playlistPanelSnapshot/);
 	assert.match(nowPlayingBar, /styles\.playlistPanelLive/);
 	assert.match(nowPlayingBar, /<PlaylistSnapshotBackdrop/);
 	assert.match(appContainerStyle, /\.playbar\s*\{[\s\S]*?isolation:\s*isolate/);
+});
+
+test("默认 Windows 材质保留透明快照并只裁切其下方的页面", () => {
+	assert.match(appContainer, /data-amll-player-main=""/);
+	assert.match(
+		nowPlayingBar,
+		/const useNativeHomeMaterial =[\s\S]*playlistSnapshotSupported &&[\s\S]*!hasBackground &&[\s\S]*!isCustomHomeBackground\(homeBackgroundConfig\)/,
+	);
+	assert.match(
+		nowPlayingBar,
+		/useNativePlaylistUnderlay\([\s\S]*playlistSurfaceReady &&[\s\S]*useNativeHomeMaterial &&[\s\S]*playlistBackdrop\.source !== null/,
+	);
+	assert.match(
+		nowPlayingBarStyle,
+		/\.playlistPanelSnapshot\[data-amll-playlist-native-surface\]\s*\{[^}]*background-color:\s*transparent/,
+	);
+	assert.match(
+		playlistSnapshotBackdropStyle,
+		/\[data-amll-playlist-native-surface\]\) > \.root\s*\{\s*background:\s*transparent/,
+	);
+	assert.match(nativePlaylistUnderlay, /CSS\.supports\("clip-path", clip\)/);
+	assert.match(nativePlaylistUnderlay, /resizeObserver\.observe\(panel\)/);
+	assert.match(nativePlaylistUnderlay, /underlay\.contains\(panel\)/);
+	assert.match(
+		nativePlaylistUnderlay,
+		/delete panel\.dataset\.amllPlaylistNativeSurface/,
+	);
+	assert.match(
+		appContainerStyle,
+		/html\[data-amll-playlist-capturing\]\) \.main\s*\{[^}]*clip-path:\s*none/,
+	);
+});
+
+test("圆角裁切使用页面局部坐标并保留整个页面外框", () => {
+	const clip = getPlaylistUnderlayClip(
+		{ left: 20, top: 30, width: 900, height: 700 },
+		{ left: 520, top: 50, width: 380, height: 640 },
+		8,
+	);
+	assert.match(clip, /^path\(evenodd, "M 0 0 H 900 V 700 H 0 Z /);
+	assert.match(clip, /M 508 20 H 872 A 8 8 0 0 1 880 28/);
+	assert.match(clip, /V 652 A 8 8 0 0 1 872 660/);
+	assert.match(clip, /H 508 A 8 8 0 0 1 500 652/);
+});
+
+test("无效或超出页面的裁切保持不透明回退", () => {
+	const page = { left: 0, top: 0, width: 900, height: 700 };
+	const panel = { left: 500, top: 20, width: 380, height: 640 };
+	for (const invalid of [
+		{ ...panel, left: -1 },
+		{ ...panel, top: -1 },
+		{ ...panel, left: 600 },
+		{ ...panel, height: 800 },
+		{ ...panel, width: 0 },
+		{ ...panel, left: Number.NaN },
+	]) {
+		assert.equal(getPlaylistUnderlayClip(page, invalid, 8), null);
+	}
+	assert.equal(getPlaylistUnderlayClip({ ...page, height: 0 }, panel, 8), null);
+	assert.equal(getPlaylistUnderlayClip(page, panel, Number.NaN), null);
+});
+
+test("裁切圆角不会超过较短边的一半", () => {
+	const clip = getPlaylistUnderlayClip(
+		{ left: 0, top: 0, width: 900, height: 700 },
+		{ left: 500.5, top: 20.5, width: 20, height: 100 },
+		40,
+	);
+	assert.match(clip, /M 510\.5 20\.5 H 510\.5 A 10 10 0 0 1 520\.5 30\.5/);
 });
 
 test("队列弹层只保留逐项移除并通过整行拖动调整顺序", () => {

@@ -63,7 +63,11 @@ export const AppContainer: FC<
 				}}
 				onMouseDown={onSidebarDraggerMouseDown}
 			/>
-			<div className={styles.main} inert={playbarExpanded ? true : undefined}>
+			<div
+				className={styles.main}
+				data-amll-player-main=""
+				inert={playbarExpanded ? true : undefined}
+			>
 				{children}
 			</div>
 			{(playbar || playbarExpandedContent) && (

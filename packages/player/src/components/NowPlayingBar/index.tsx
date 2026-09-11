@@ -38,6 +38,7 @@ import IconRewind from "../../assets/icon_rewind.svg?react";
 import {
 	hasBackgroundAtom,
 	hideNowPlayingBarAtom,
+	isDarkThemeAtom,
 	playlistCardOpenedAtom,
 } from "../../states/appAtoms.ts";
 import {
@@ -57,6 +58,7 @@ import {
 	PlaylistSnapshotBackdrop,
 	usePlaylistBackdropSnapshot,
 } from "../PlaylistSnapshotBackdrop/index.tsx";
+import { useNativePlaylistUnderlay } from "../PlaylistSnapshotBackdrop/useNativePlaylistUnderlay.ts";
 import styles from "./index.module.css";
 
 const VIEWPORT_RESIZE_SETTLE_DELAY = 120;
@@ -75,6 +77,7 @@ export const NowPlayingBar: FC = () => {
 	const hasBackground = useAtomValue(hasBackgroundAtom);
 	const homeBackgroundConfig = useAtomValue(effectiveHomeBackgroundConfigAtom);
 	const homeBackgroundLoaded = useAtomValue(homeBackgroundLoadedAtom);
+	const isDarkTheme = useAtomValue(isDarkThemeAtom);
 	const [playlistOpened, setPlaylistOpened] = useAtom(playlistCardOpenedAtom);
 	const setLyricPageOpened = useSetAtom(isLyricPageOpenedAtom);
 	const [coverTransition, setCoverTransition] =
@@ -99,28 +102,29 @@ export const NowPlayingBar: FC = () => {
 		!isLyricPageOpened &&
 		playlistPortalTarget !== null;
 	const playlistSnapshotSupported = platform() === "windows";
-	const useNativeHomeMaterial =
-		homeBackgroundLoaded &&
-		playlistSnapshotSupported &&
-		!hasBackground &&
-		!isCustomHomeBackground(homeBackgroundConfig);
+	// Transparent WebView2 windows cannot reliably blur page content behind
+	// this panel, even when DWM supplies the default window material.
 	const usePlaylistSnapshot =
-		normalPlaylistActive &&
-		homeBackgroundLoaded &&
-		playlistSnapshotSupported &&
-		!useNativeHomeMaterial;
+		normalPlaylistActive && homeBackgroundLoaded && playlistSnapshotSupported;
 	const playlistBackdrop = usePlaylistBackdropSnapshot(
 		usePlaylistSnapshot,
-		`${homeBackgroundConfig.mode}:${homeBackgroundConfig.assetId ?? ""}:${homeBackgroundConfig.updatedAt}`,
+		`${homeBackgroundConfig.mode}:${homeBackgroundConfig.assetId ?? ""}:${homeBackgroundConfig.updatedAt}:${isDarkTheme}`,
 	);
 	const playlistSurfaceReady =
 		normalPlaylistActive &&
 		homeBackgroundLoaded &&
-		(useNativeHomeMaterial ||
-			!playlistSnapshotSupported ||
-			playlistBackdrop.isReady);
-	const useCapturedPlaylistSurface =
-		!useNativeHomeMaterial && playlistBackdrop.source !== null;
+		(!playlistSnapshotSupported || playlistBackdrop.isReady);
+	const useNativeHomeMaterial =
+		playlistSnapshotSupported &&
+		!hasBackground &&
+		!isCustomHomeBackground(homeBackgroundConfig);
+	useNativePlaylistUnderlay(
+		playlistSurfaceReady &&
+			useNativeHomeMaterial &&
+			playlistBackdrop.source !== null,
+		playlistPanelRef,
+		playlistPortalTarget,
+	);
 	const finishCoverTransition = useCallback(() => {
 		coverTransitionBusyRef.current = false;
 		setCoverTransition(null);
@@ -340,11 +344,9 @@ export const NowPlayingBar: FC = () => {
 						<Flex
 							className={classNames(
 								styles.playlistPanel,
-								useNativeHomeMaterial
-									? styles.playlistPanelNative
-									: useCapturedPlaylistSurface
-										? styles.playlistPanelSnapshot
-										: styles.playlistPanelLive,
+								playlistSnapshotSupported
+									? styles.playlistPanelSnapshot
+									: styles.playlistPanelLive,
 							)}
 							direction="row-reverse"
 							mx="3"
@@ -354,7 +356,7 @@ export const NowPlayingBar: FC = () => {
 							ref={playlistPanelRef}
 							data-amll-playlist-panel=""
 						>
-							{useCapturedPlaylistSurface && playlistBackdrop.source && (
+							{playlistBackdrop.source && (
 								<PlaylistSnapshotBackdrop
 									source={playlistBackdrop.source}
 									variant="compact"
