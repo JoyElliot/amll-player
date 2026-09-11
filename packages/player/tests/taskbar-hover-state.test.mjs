@@ -95,6 +95,61 @@ test("布局移动到静止指针下方时仍然不会重新激活悬停", () =>
 	assert.equal(shouldReactivateHover(pointer, pointer, surfaceRect), false);
 });
 
+test("已经重新就绪时，仅移动事件回到歌词区域也能展开", () => {
+	const surfaceRect = { left: 70, right: 300, top: 3, bottom: 37 };
+	assert.equal(
+		shouldReactivateHover({ x: 180, y: 20 }, null, surfaceRect, true),
+		true,
+	);
+});
+
+test("退场保护区内先重新就绪再返回，不依赖新的 mouseenter", () => {
+	const surfaceRect = { left: 70, right: 300, top: 3, bottom: 37 };
+	const guardPointer = { x: 320, y: 20 };
+	assert.equal(isPointerOutsideRect(guardPointer, surfaceRect, 0), true);
+	assert.equal(
+		shouldReactivateHover(guardPointer, null, surfaceRect, true),
+		false,
+	);
+	assert.equal(
+		shouldReactivateHover({ x: 299, y: 20 }, null, surfaceRect, true),
+		true,
+	);
+});
+
+test("未重新就绪时仍要求真实移动，重新就绪后不受旧退出坐标阻挡", () => {
+	const surfaceRect = { left: 70, right: 300, top: 3, bottom: 37 };
+	const pointer = { x: 180, y: 20 };
+	assert.equal(
+		shouldReactivateHover(pointer, pointer, surfaceRect, false),
+		false,
+	);
+	assert.equal(
+		shouldReactivateHover(pointer, pointer, surfaceRect, true),
+		true,
+	);
+});
+
+test("重新就绪后同坐标鼠标回流不会因布局变化误展开", () => {
+	const surfaceRect = { left: 70, right: 300, top: 3, bottom: 37 };
+	const pointer = { x: 180, y: 20 };
+	assert.equal(
+		shouldReactivateHover(pointer, null, surfaceRect, true, pointer),
+		false,
+	);
+});
+
+test("保护区内重新就绪后的真实回移仍然可以展开", () => {
+	const surfaceRect = { left: 70, right: 300, top: 3, bottom: 37 };
+	assert.equal(
+		shouldReactivateHover({ x: 299, y: 20 }, null, surfaceRect, true, {
+			x: 320,
+			y: 20,
+		}),
+		true,
+	);
+});
+
 test("静止指针和仍在控件外的指针不会误触发悬停", () => {
 	const surfaceRect = { left: 70, right: 300, top: 3, bottom: 37 };
 	const exitPointer = { x: 180, y: 39 };

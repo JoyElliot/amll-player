@@ -1201,6 +1201,10 @@ fn open_taskbar_lyric_for_generation(app: tauri::AppHandle, expected_generation:
                     return;
                 }
 
+                // Do not leave hit testing at the previous taskbar position
+                // while waiting for the child WebView to finish resizing.
+                mouse_forward::update_cached_bounds();
+
                 // The page waits for this layout before acknowledging its first
                 // frame, so only publish coordinates that were applied successfully.
                 let _ = app_clone.emit(
@@ -1214,13 +1218,18 @@ fn open_taskbar_lyric_for_generation(app: tauri::AppHandle, expected_generation:
                 );
 
                 let bounds_app = app_clone.clone();
+                let bounds_top_hwnd = hwnd.0 as usize;
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(Duration::from_millis(50)).await;
-                    let is_current = bounds_app
-                        .try_state::<TaskbarLyricState>()
-                        .is_some_and(|state| state.visibility.is_current(generation));
-                    if is_current {
-                        mouse_forward::update_cached_bounds();
+                    let is_current =
+                        bounds_app
+                            .try_state::<TaskbarLyricState>()
+                            .is_some_and(|state| {
+                                state.visibility.window_matches(generation, bounds_top_hwnd)
+                            });
+                    if is_current && !mouse_forward::update_cached_bounds() {
+                        tracing::debug!("任务栏歌词鼠标边界刷新失败，重新验证 WebView 转发目标");
+                        schedule_webview_hwnd_lookup(bounds_app, generation, bounds_top_hwnd, true);
                     }
                 });
 

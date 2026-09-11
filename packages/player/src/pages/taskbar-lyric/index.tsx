@@ -1036,12 +1036,19 @@ export const TaskbarLyricApp = () => {
 	useEffect(() => {
 		const handlePointerMove = (event: MouseEvent) => {
 			const pointer = { x: event.clientX, y: event.clientY };
+			const previousPointer = latestPointerRef.current;
 			latestPointerRef.current = pointer;
 
-			if (hoverArmedRef.current || isHoveredRef.current) return;
+			if (!startupReadyRef.current || !isVisible || isHoveredRef.current)
+				return;
 
 			const exitPointer = hoverExitPointerRef.current;
-			if (exitPointer && !hasPointerMoved(pointer, exitPointer)) return;
+			if (
+				!hoverArmedRef.current &&
+				exitPointer &&
+				!hasPointerMoved(pointer, exitPointer)
+			)
+				return;
 
 			const hoverSurface = hoverSurfaceRef.current;
 			if (!hoverSurface) {
@@ -1058,7 +1065,16 @@ export const TaskbarLyricApp = () => {
 			}
 
 			if (
-				shouldReactivateHover(pointer, hoverExitPointerRef.current, surfaceRect)
+				// Re-entering through the retained guard does not cross the wrapper
+				// boundary again. A move inside the surface must also handle armed
+				// hover, including after native mouse forwarding recovers.
+				shouldReactivateHover(
+					pointer,
+					exitPointer,
+					surfaceRect,
+					hoverArmedRef.current,
+					previousPointer,
+				)
 			) {
 				activateHover(pointer);
 			}
@@ -1086,7 +1102,7 @@ export const TaskbarLyricApp = () => {
 			window.removeEventListener("mousemove", handlePointerMove);
 			window.removeEventListener("mouseout", handleWindowMouseOut);
 		};
-	}, [activateHover]);
+	}, [activateHover, isVisible]);
 
 	useEffect(
 		() => () => {

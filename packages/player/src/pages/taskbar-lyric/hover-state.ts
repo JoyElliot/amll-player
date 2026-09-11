@@ -40,10 +40,13 @@ export function shouldReactivateHover(
 	pointer: PointerPosition,
 	exitPointer: PointerPosition | null,
 	surfaceRect: RectBounds,
+	armed = false,
+	previousPointer: PointerPosition | null = null,
 ): boolean {
 	return Boolean(
-		exitPointer &&
-			hasPointerMoved(pointer, exitPointer) &&
+		(armed
+			? !previousPointer || hasPointerMoved(pointer, previousPointer)
+			: exitPointer && hasPointerMoved(pointer, exitPointer)) &&
 			!isPointerOutsideRect(pointer, surfaceRect, 0),
 	);
 }

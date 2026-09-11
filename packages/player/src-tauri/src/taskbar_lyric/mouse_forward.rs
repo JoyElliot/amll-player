@@ -92,10 +92,25 @@ static HOOK_WORKER_HANDLE: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::n
 const HOOK_START_TIMEOUT: Duration = Duration::from_secs(1);
 const HOOK_STOP_TIMEOUT: Duration = Duration::from_secs(1);
 
-static WEBVIEW_LEFT: AtomicIsize = AtomicIsize::new(0);
-static WEBVIEW_RIGHT: AtomicIsize = AtomicIsize::new(0);
-static WEBVIEW_TOP: AtomicIsize = AtomicIsize::new(0);
-static WEBVIEW_BOTTOM: AtomicIsize = AtomicIsize::new(0);
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct WebviewBounds {
+    left: i32,
+    right: i32,
+    top: i32,
+    bottom: i32,
+}
+
+impl WebviewBounds {
+    fn contains(self, point: POINT, padding: i32) -> bool {
+        point.x >= self.left - padding
+            && point.x < self.right + padding
+            && point.y >= self.top - padding
+            && point.y < self.bottom + padding
+    }
+}
+
+// Publish all four coordinates together; the hook must not combine two layouts.
+static WEBVIEW_BOUNDS: Mutex<Option<(isize, WebviewBounds)>> = Mutex::new(None);
 
 fn make_lparam(x: i32, y: i32) -> LPARAM {
     LPARAM(((y as u16 as u32) << 16 | (x as u16 as u32)) as isize)
@@ -138,6 +153,8 @@ pub fn stop_mouse_hook() {
     if !try_stop_current_hook_worker() {
         tracing::error!("鼠标钩子线程未能在限定时间内停止");
     }
+    WAS_INSIDE.store(false, Ordering::Relaxed);
+    INTERCEPT_CLICKS.store(false, Ordering::Relaxed);
 }
 
 pub fn is_mouse_hook_running() -> bool {
@@ -241,10 +258,19 @@ pub fn update_cached_bounds() -> bool {
         return false;
     }
 
-    WEBVIEW_LEFT.store(top_left.x as isize, Ordering::Relaxed);
-    WEBVIEW_RIGHT.store(bottom_right.x as isize, Ordering::Relaxed);
-    WEBVIEW_TOP.store(top_left.y as isize, Ordering::Relaxed);
-    WEBVIEW_BOTTOM.store(bottom_right.y as isize, Ordering::Relaxed);
+    let mut cached = WEBVIEW_BOUNDS.lock().unwrap();
+    if WEBVIEW_HWND.load(Ordering::Relaxed) != webview_ptr {
+        return false;
+    }
+    *cached = Some((
+        webview_ptr,
+        WebviewBounds {
+            left: top_left.x,
+            right: bottom_right.x,
+            top: top_left.y,
+            bottom: bottom_right.y,
+        },
+    ));
     true
 }
 
@@ -271,6 +297,9 @@ where
         tracing::error!("旧鼠标钩子线程仍在运行，取消启动新线程");
         return false;
     }
+    // Hook recovery can replace the render HWND while keeping the same DOM.
+    // Preserve hover/click state so the next outside event can deliver leave;
+    // a full window shutdown resets both in stop_mouse_hook instead.
     if !init_mouse_forwarding_state(top_hwnd, webview_hwnd) {
         tracing::warn!("WebView 句柄在鼠标钩子启动前已经失效或尚无可用边界");
         return false;
@@ -445,19 +474,15 @@ unsafe extern "system" fn mouse_hook_proc(n_code: i32, wparam: WPARAM, lparam: L
             let hook_struct = unsafe { &*(lparam.0 as *const MSLLHOOKSTRUCT) };
             let pt = hook_struct.pt;
 
-            let left = WEBVIEW_LEFT.load(Ordering::Relaxed) as i32;
-            let right = WEBVIEW_RIGHT.load(Ordering::Relaxed) as i32;
-            let top = WEBVIEW_TOP.load(Ordering::Relaxed) as i32;
-            let bottom = WEBVIEW_BOTTOM.load(Ordering::Relaxed) as i32;
-
-            let padding = 5;
-
-            let is_inside_padded = pt.x >= (left - padding)
-                && pt.x <= (right + padding)
-                && pt.y >= (top - padding)
-                && pt.y <= (bottom + padding);
-
-            let is_inside_actual = pt.x >= left && pt.x <= right && pt.y >= top && pt.y <= bottom;
+            let cached_bounds = *WEBVIEW_BOUNDS.lock().unwrap();
+            let Some((cached_hwnd, bounds)) = cached_bounds else {
+                return unsafe { CallNextHookEx(None, n_code, wparam, lparam) };
+            };
+            if cached_hwnd != webview_ptr {
+                return unsafe { CallNextHookEx(None, n_code, wparam, lparam) };
+            }
+            let is_inside_padded = bounds.contains(pt, 5);
+            let is_inside_actual = bounds.contains(pt, 0);
 
             let was_inside = WAS_INSIDE.load(Ordering::Relaxed);
 
@@ -465,8 +490,8 @@ unsafe extern "system" fn mouse_hook_proc(n_code: i32, wparam: WPARAM, lparam: L
                 let msg_id = wparam.0 as u32;
 
                 if is_inside_actual {
-                    let client_x = pt.x - left;
-                    let client_y = pt.y - top;
+                    let client_x = pt.x - bounds.left;
+                    let client_y = pt.y - bounds.top;
 
                     let client_lparam = make_lparam(client_x, client_y);
 
@@ -531,6 +556,23 @@ unsafe extern "system" fn mouse_hook_proc(n_code: i32, wparam: WPARAM, lparam: L
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hit_testing_uses_screen_bounds_and_excludes_client_right_bottom_edges() {
+        let bounds = WebviewBounds {
+            left: -400,
+            right: -100,
+            top: 900,
+            bottom: 940,
+        };
+        assert!(bounds.contains(POINT { x: -400, y: 900 }, 0));
+        assert!(bounds.contains(POINT { x: -101, y: 939 }, 0));
+        assert!(!bounds.contains(POINT { x: -100, y: 920 }, 0));
+        assert!(!bounds.contains(POINT { x: -200, y: 940 }, 0));
+        assert!(!bounds.contains(POINT { x: -401, y: 920 }, 0));
+        assert!(bounds.contains(POINT { x: -401, y: 920 }, 5));
+        assert!(!bounds.contains(POINT { x: -406, y: 920 }, 5));
+    }
 
     #[test]
     fn stale_worker_cannot_clear_the_reopened_worker_identity() {
