@@ -4,6 +4,10 @@ import type {
 	RhythmOnsetPoint,
 	RhythmTimedValue,
 } from "../../utils/db-client.ts";
+import {
+	getRhythmImpactEvents,
+	type RhythmImpactEvent,
+} from "./rhythm-impact-events.ts";
 
 const MIN_BEAT_PRE_ROLL_MS = 80;
 const MAX_BEAT_PRE_ROLL_MS = 140;
@@ -116,6 +120,7 @@ interface LocalGridCoverageProfile {
 interface VisualBeatPoint {
 	timeMs: number;
 	value: number;
+	periodMs?: number;
 }
 
 interface StrongAccentPoint {
@@ -146,6 +151,10 @@ const percussiveAccentProfiles = new WeakMap<
 	PercussiveAccentProfile
 >();
 const tempoGridProfiles = new WeakMap<RhythmAnalysis, TempoGridProfile[]>();
+const visualEventProfiles = new WeakMap<
+	RhythmAnalysis,
+	PercussiveAccentProfile
+>();
 
 /**
  * 保持现有 0..0.4 接口范围；Mesh 内部会在拆分慢呼吸与重拍相位前将其
@@ -361,7 +370,7 @@ function quantile(sortedValues: readonly number[], amount: number): number {
 }
 
 /**
- * tempoSegments 是局部估计，而 beats 目前仍按 globalBpm 建格。若一个
+ * tempoSegments 是局部估计。若缓存中一个
  * 足够长且可信的快速分段，其局部周期明显短于该段实际拍点间距，就说明
  * 拍格被欠采样了。记录实际网格周期，既避免把稀疏拍的包络错误缩短，
  * 也给严格 onset 补普通视觉脉冲提供纯声学判据。
@@ -1187,6 +1196,116 @@ function hasUsableBeatGrid(analysis: RhythmAnalysis): boolean {
 	return result;
 }
 
+function nearestImpact(
+	events: readonly RhythmImpactEvent[],
+	timeMs: number,
+): RhythmImpactEvent | undefined {
+	let result: RhythmImpactEvent | undefined;
+	let score = 0;
+	for (
+		let index = lowerBound(events, timeMs - ONSET_BEAT_MERGE_MS);
+		index < events.length;
+		index++
+	) {
+		const event = events[index];
+		const offset = Math.abs(event.timeMs - timeMs);
+		if (event.timeMs > timeMs + ONSET_BEAT_MERGE_MS) break;
+		const tolerance = Math.min(ONSET_BEAT_MERGE_MS, event.periodMs * 0.36);
+		if (offset > tolerance) continue;
+		const candidateScore =
+			event.confidence * (1 - (offset / (tolerance + 1)) * 0.2);
+		if (candidateScore > score) {
+			result = event;
+			score = candidateScore;
+		}
+	}
+	return result;
+}
+
+/** Share acoustic event times with the rotation channel, including off-grid bass. */
+function visualEventProfile(analysis: RhythmAnalysis): PercussiveAccentProfile {
+	const cached = visualEventProfiles.get(analysis);
+	if (cached) return cached;
+	const base = percussiveAccentProfile(analysis);
+	const events = getRhythmImpactEvents(analysis);
+	if (events === null || events.length === 0) {
+		visualEventProfiles.set(analysis, base);
+		return base;
+	}
+	const consumed = new Set<RhythmImpactEvent>();
+	// An acoustic event may adjust only its closest grid point. Moving
+	// both neighbours part-way inward creates a false pair of close pulses.
+	const owners = new Map<RhythmImpactEvent, VisualBeatPoint>();
+	for (const beat of base.visualBeats) {
+		const event = nearestImpact(events, beat.timeMs);
+		if (!event) continue;
+		const owner = owners.get(event);
+		if (
+			!owner ||
+			Math.abs(beat.timeMs - event.timeMs) <
+				Math.abs(owner.timeMs - event.timeMs)
+		)
+			owners.set(event, beat);
+	}
+	const visualBeats = base.visualBeats.map((beat) => {
+		const event = nearestImpact(events, beat.timeMs);
+		if (!event) return beat;
+		if (owners.get(event) !== beat) return beat;
+		consumed.add(event);
+		const alignment = smootherStep01(event.confidence / 0.35);
+		return {
+			timeMs: beat.timeMs + (event.timeMs - beat.timeMs) * alignment,
+			value: Math.max(
+				beat.value,
+				perceptibleAccent(analysis, event.strength * 0.8, event.peakEnergy),
+			),
+			periodMs:
+				beatPeriodMs(analysis, beat.timeMs) * (1 - alignment) +
+				event.periodMs * alignment,
+		};
+	});
+	for (const event of events) {
+		if (consumed.has(event)) continue;
+		visualBeats.push({
+			timeMs: event.timeMs,
+			value: perceptibleAccent(
+				analysis,
+				event.strength * 0.8,
+				event.peakEnergy,
+			),
+			periodMs: event.periodMs,
+		});
+	}
+	visualBeats.sort((left, right) => left.timeMs - right.timeMs);
+	const merged: VisualBeatPoint[] = [];
+	for (const point of visualBeats) {
+		const previous = merged[merged.length - 1];
+		if (previous && Math.abs(previous.timeMs - point.timeMs) < 1) {
+			previous.value = Math.max(previous.value, point.value);
+		} else {
+			merged.push({ ...point });
+		}
+	}
+	const profile = {
+		...base,
+		visualBeats: merged,
+		// These onsets already contributed to the shared low-frequency event.
+		// Leave genuine subdivisions alone; remove duplicate displaced shoulders.
+		points: base.points.map((point) => {
+			const impact = nearestImpact(events, point.timeMs);
+			return impact
+				? {
+						...point,
+						strength:
+							point.strength * (1 - smootherStep01(impact.confidence / 0.35)),
+					}
+				: point;
+		}),
+	};
+	visualEventProfiles.set(analysis, profile);
+	return profile;
+}
+
 /** 将全曲中等以下拍点映射为轻触，把 P90 重拍明确拉到满幅。 */
 export function normalizeBeatStrength(
 	analysis: RhythmAnalysis,
@@ -1275,8 +1394,12 @@ function beatPeriodMs(analysis: RhythmAnalysis, timeMs: number): number {
 	return bpm > 0 ? 60_000 / Math.max(1, bpm) : 500;
 }
 
-function beatPreRollMs(analysis: RhythmAnalysis, timeMs: number): number {
-	const periodMs = beatPeriodMs(analysis, timeMs);
+function beatPreRollMs(
+	analysis: RhythmAnalysis,
+	timeMs: number,
+	eventPeriodMs?: number,
+): number {
+	const periodMs = eventPeriodMs ?? beatPeriodMs(analysis, timeMs);
 	return clamp(
 		periodMs * BEAT_PRE_ROLL_PERIOD_RATIO,
 		MIN_BEAT_PRE_ROLL_MS,
@@ -1284,8 +1407,12 @@ function beatPreRollMs(analysis: RhythmAnalysis, timeMs: number): number {
 	);
 }
 
-function beatReleaseMs(analysis: RhythmAnalysis, timeMs: number): number {
-	const periodMs = beatPeriodMs(analysis, timeMs);
+function beatReleaseMs(
+	analysis: RhythmAnalysis,
+	timeMs: number,
+	eventPeriodMs?: number,
+): number {
+	const periodMs = eventPeriodMs ?? beatPeriodMs(analysis, timeMs);
 	return clamp(
 		periodMs * BEAT_RELEASE_PERIOD_RATIO,
 		MIN_BEAT_RELEASE_MS,
@@ -1308,7 +1435,7 @@ function sampleBeatPulses(
 
 	const next = values[nextIndex];
 	if (next) {
-		const preRollMs = beatPreRollMs(analysis, next.timeMs);
+		const preRollMs = beatPreRollMs(analysis, next.timeMs, next.periodMs);
 		if (next.timeMs - timeMs <= preRollMs) {
 			result = Math.max(
 				result,
@@ -1317,7 +1444,7 @@ function sampleBeatPulses(
 						timeMs,
 						next.timeMs,
 						preRollMs,
-						beatReleaseMs(analysis, next.timeMs),
+						beatReleaseMs(analysis, next.timeMs, next.periodMs),
 					),
 			);
 		}
@@ -1328,7 +1455,7 @@ function sampleBeatPulses(
 		if (!point) break;
 		const ageMs = timeMs - point.timeMs;
 		if (ageMs > MAX_BEAT_RELEASE_MS) break;
-		const releaseMs = beatReleaseMs(analysis, point.timeMs);
+		const releaseMs = beatReleaseMs(analysis, point.timeMs, point.periodMs);
 		if (ageMs > releaseMs) continue;
 		result = Math.max(
 			result,
@@ -1336,7 +1463,7 @@ function sampleBeatPulses(
 				sampleSmoothPulse(
 					timeMs,
 					point.timeMs,
-					beatPreRollMs(analysis, point.timeMs),
+					beatPreRollMs(analysis, point.timeMs, point.periodMs),
 					releaseMs,
 				),
 		);
@@ -1347,9 +1474,8 @@ function sampleBeatPulses(
 /**
  * 将分析结果变成连续的 0..1 视觉目标。
  *
- * beat 是主驱动；邻近 onset 只校正对应 beat 的强度，或在完全没有 beat
- * grid 时降级使用。这样既不会漏掉 novelty 低估的真实重拍，也不会让
- * 每秒数次的高密度 onset 独立制造视觉碎动。
+ * 普通拍格保留轻声部的节律；有频带和能量支撑的低频事件校正拍点时间，
+ * 并补足半速拍格之外的真实冲击。它与强旋转共享事件时间和邻拍间隔。
  */
 export function sampleAnalysisTarget(
 	analysis: RhythmAnalysis,
@@ -1358,12 +1484,8 @@ export function sampleAnalysisTarget(
 	if (!Number.isFinite(timeMs)) return 0;
 	const energy = sampleSmoothedEnergy(analysis.energyEnvelope, timeMs);
 	const hasBeatGrid = hasUsableBeatGrid(analysis);
-	const accentProfile = hasBeatGrid
-		? percussiveAccentProfile(analysis)
-		: undefined;
-	const beat = hasBeatGrid
-		? sampleBeatPulses(analysis, accentProfile?.visualBeats ?? [], timeMs)
-		: 0;
+	const accentProfile = visualEventProfile(analysis);
+	const beat = sampleBeatPulses(analysis, accentProfile.visualBeats, timeMs);
 	const onset = hasBeatGrid
 		? 0
 		: sampleTimedPulses(
@@ -1411,7 +1533,7 @@ export function sampleAnalysisTarget(
 
 	const energyDrive = visualEnergyDrive(analysis, energy);
 	const breath = energyDrive * 0.2;
-	const beatAccent = hasBeatGrid ? beat : 0;
+	const beatAccent = beat;
 	const onsetFallback = hasBeatGrid ? 0 : onset;
 	const ordinaryGridAccent = Math.max(beatAccent, onsetFallback);
 	const ordinaryResidualAccent = ordinaryPercussiveAccent;
@@ -1496,16 +1618,27 @@ export function sampleStrongBeatTarget(
 	analysis: RhythmAnalysis,
 	timeMs: number,
 ): number {
-	if (!Number.isFinite(timeMs) || !hasUsableBeatGrid(analysis)) return 0;
-	const lowFrequencyImpact = sampleStrongPulses(analysis.beats, timeMs, (point) => {
-		const evidence = beatEnergyEvidence(analysis, point);
-		return (
-			smootherStep01(
-				(evidence.impact - STRONG_BEAT_IMPACT_START) /
-					(STRONG_BEAT_IMPACT_FULL - STRONG_BEAT_IMPACT_START),
-			) * strongBeatAbsoluteGate(analysis, evidence.peak)
-		);
-	});
+	if (!Number.isFinite(timeMs)) return 0;
+	const impacts = getRhythmImpactEvents(analysis);
+	if (impacts !== null) {
+		return sampleStrongPulses(impacts, timeMs, (point) => point.strength);
+	}
+	// Legacy payloads have no absolute band identity; retain their established
+	// conservative grid-based behaviour until a current analysis is available.
+	if (!hasUsableBeatGrid(analysis)) return 0;
+	const lowFrequencyImpact = sampleStrongPulses(
+		analysis.beats,
+		timeMs,
+		(point) => {
+			const evidence = beatEnergyEvidence(analysis, point);
+			return (
+				smootherStep01(
+					(evidence.impact - STRONG_BEAT_IMPACT_START) /
+						(STRONG_BEAT_IMPACT_FULL - STRONG_BEAT_IMPACT_START),
+				) * strongBeatAbsoluteGate(analysis, evidence.peak)
+			);
+		},
+	);
 	const percussiveImpact = sampleStrongPulses(
 		percussiveAccentProfile(analysis).strongPoints,
 		timeMs,

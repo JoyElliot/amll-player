@@ -3397,3 +3397,130 @@ test("安装后的 ESM 与 CJS core 包可以真实加载", () => {
 		{ stdio: "pipe" },
 	);
 });
+
+const impactSegmentFixtures = JSON.parse(
+	readFileSync(
+		new URL("./fixtures/rhythm-impact-segments.json", import.meta.url),
+		"utf8",
+	),
+);
+
+function simulateImpactSegment(fixture, fps, includeRawBass = false) {
+	const harness = createMeshHarness();
+	const deltaMs = 1_000 / fps;
+	const startMs = Math.max(0, fixture.window[0] - 1_000);
+	const endMs = fixture.window[1];
+	let volume = 0;
+	const samples = [];
+	for (let frame = 0; startMs + frame * deltaMs <= endMs; frame++) {
+		const elapsedMs = frame * deltaMs;
+		const musicTimeMs = startMs + elapsedMs;
+		volume = advanceRhythmVisualVolume(
+			volume,
+			mapRhythmTargetToVolume(
+				sampleAnalysisTarget(fixture.analysis, musicTimeMs),
+			),
+			deltaMs,
+		);
+		// The cache contains no live FFT; this smooth control signal checks coexistence only.
+		const rawBass = includeRawBass ? 0.4 + 0.2 * Math.sin(elapsedMs / 190) : 0;
+		const sample = harness.step(elapsedMs, deltaMs, {
+			breath: volume,
+			strongBeat: sampleStrongBeatTarget(fixture.analysis, musicTimeMs),
+			rawBass,
+		});
+		if (musicTimeMs >= fixture.window[0])
+			samples.push({ ...sample, musicTimeMs });
+	}
+	return samples;
+}
+
+test("四类真实分析片段进入 Mesh 后保持有界、连续且跨帧率一致", () => {
+	for (const [key, fixture] of Object.entries(impactSegmentFixtures)) {
+		for (const includeRawBass of [false, true]) {
+			let reference;
+			for (const fps of [60, 120, 240]) {
+				const samples = simulateImpactSegment(fixture, fps, includeRawBass);
+				const maxKick = Math.max(...samples.map((sample) => sample.kick));
+				const meanKick =
+					samples.reduce((sum, sample) => sum + sample.kick, 0) /
+					samples.length;
+				for (let index = 0; index < samples.length; index++) {
+					const sample = samples[index];
+					const context = `${key}/${fps}Hz/rawBass=${includeRawBass}/${sample.musicTimeMs}ms`;
+					assert.ok(
+						Number.isFinite(sample.kick) &&
+							sample.kick >= 0 &&
+							sample.kick < 0.4,
+						`${context}: kick=${sample.kick}`,
+					);
+					assert.ok(
+						sample.breath >= 0 && sample.breath <= 0.2,
+						`${context}: breath=${sample.breath}`,
+					);
+					assert.ok(
+						sample.angleUniformError < 1e-12,
+						`${context}: rotation uniform mismatch`,
+					);
+					assert.ok(
+						Math.abs(sample.brightness - 1) < 1e-12,
+						`${context}: brightness=${sample.brightness}`,
+					);
+					if (index > 0) {
+						assert.ok(
+							Math.abs(sample.kick - samples[index - 1].kick) < 2 / fps,
+							`${context}: one-frame kick jump`,
+						);
+					}
+				}
+				if (reference) {
+					assert.ok(
+						Math.abs(maxKick - reference.maxKick) < 0.008,
+						`${key}/${fps}Hz: peak drift ${maxKick - reference.maxKick}`,
+					);
+					assert.ok(
+						Math.abs(meanKick - reference.meanKick) < 0.004,
+						`${key}/${fps}Hz: motion drift ${meanKick - reference.meanKick}`,
+					);
+				} else reference = { maxKick, meanKick };
+			}
+		}
+	}
+});
+
+test("Shots 半速网格片段在真实 Mesh 中每次低音都有推进，收尾后自然回落", () => {
+	const fixture = impactSegmentFixtures["half-time-bass"];
+	const samples = simulateImpactSegment(fixture, 120);
+	const anchors = [
+		136_777, 137_288, 137_787, 138_286, 138_786, 139_285, 139_784, 140_283,
+		140_783, 141_282, 141_781, 142_280, 142_780, 143_279, 143_778, 144_289,
+		144_776, 145_287, 145_798, 146_286, 146_785, 147_284, 147_783, 148_283,
+		148_782, 149_281, 149_780,
+	];
+	for (const timeMs of anchors) {
+		const before = samples.filter(
+			(sample) =>
+				sample.musicTimeMs >= timeMs - 180 && sample.musicTimeMs < timeMs,
+		);
+		const after = samples.filter(
+			(sample) =>
+				sample.musicTimeMs >= timeMs && sample.musicTimeMs <= timeMs + 150,
+		);
+		const excursion =
+			Math.max(...after.map((sample) => sample.kick)) -
+			Math.min(...before.map((sample) => sample.kick));
+		assert.ok(
+			excursion > 0.012,
+			`${timeMs}ms: rotation excursion=${excursion}`,
+		);
+	}
+	const body = samples.filter(
+		(sample) => sample.musicTimeMs >= 145_000 && sample.musicTimeMs <= 149_000,
+	);
+	const tail = samples.filter((sample) => sample.musicTimeMs >= 150_500);
+	assert.ok(
+		Math.max(...tail.map((sample) => sample.kick)) <
+			Math.max(...body.map((sample) => sample.kick)) * 0.6,
+		"收尾后仍维持重低音段摆幅",
+	);
+});

@@ -12,7 +12,7 @@
 		"test:lyric-style": "node --test tests/lyric-descender-style.test.mjs",
 		"test:play-pause-animation": "node --test tests/play-pause-animation.test.mjs",
 		"test:play-queue": "node --test tests/play-queue-loudness.test.mjs",
-		"test:rhythm-visual": "node --test tests/rhythm-visual-signal.test.mjs",
+		"test:rhythm-visual": "node --test tests/rhythm-visual-signal.test.mjs tests/rhythm-impact-events.test.mjs",
 		"test:taskbar-hover": "node --test tests/taskbar-hover-state.test.mjs",
 		"test:taskbar-lyric-state": "node --test tests/taskbar-lyric-state.test.mjs",
 		"test:home-background": "node --test tests/home-background-state.test.mjs tests/home-background-contract.test.mjs",
