@@ -40,6 +40,9 @@ export interface SongBackgroundOverride {
 	videoOpacity: number;
 	videoBaseRendererMode: SongVideoBaseRendererMode;
 	videoBaseCssBackground: string;
+	rendererOptions?:
+		| import("./background-renderer-options.ts").BackgroundRendererOptions
+		| null;
 	updatedAt: number;
 }
 
@@ -50,6 +53,9 @@ export interface SaveSongBackgroundOverridePayload {
 	videoOpacity: number;
 	videoBaseRendererMode: SongVideoBaseRendererMode;
 	videoBaseCssBackground: string;
+	rendererOptions?:
+		| import("./background-renderer-options.ts").BackgroundRendererOptions
+		| null;
 }
 
 export interface ImportedSongVideoBackground {

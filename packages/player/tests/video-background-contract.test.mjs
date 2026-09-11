@@ -342,11 +342,11 @@ test("reduced-motion、页面可见性和静态模式同时约束视频与基础
 			lyricPageOpened &&
 			pageVisible &&
 			!reducedMotion &&
-			!staticMode;`,
+			!effectiveStaticMode;`,
 	]);
 	assertSourceContains(runtime, "基础 renderer 状态", [
 		"!videoCoversBase && lyricPageOpened && pageVisible && !reducedMotion",
-		"staticMode || !lyricPageOpened || !pageVisible || reducedMotion",
+		"effectiveStaticMode || !lyricPageOpened || !pageVisible || reducedMotion",
 	]);
 	assertSourceContains(runtime, "隐藏页不判首帧超时", [
 		"!lyricPageOpened",

@@ -13,6 +13,7 @@ pub struct Model {
     pub video_opacity: f64,
     pub video_base_renderer_mode: String,
     pub video_base_css_background: String,
+    pub renderer_options: Option<Json>,
     pub updated_at: i64,
 }
 

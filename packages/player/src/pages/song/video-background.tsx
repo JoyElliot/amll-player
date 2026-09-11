@@ -1,4 +1,10 @@
 import {
+	cssBackgroundPropertyAtom,
+	lyricBackgroundFPSAtom,
+	lyricBackgroundRenderScaleAtom,
+	lyricBackgroundStaticModeAtom,
+} from "@applemusic-like-lyrics/react-full";
+import {
 	Button,
 	Callout,
 	Card,
@@ -11,6 +17,7 @@ import {
 	TextField,
 } from "@radix-ui/themes";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { useAtomValue } from "jotai";
 import {
 	type FC,
 	useCallback,
@@ -22,6 +29,11 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "react-toastify";
+import { lyricBackgroundAnimationIntensityAtom } from "../../states/appAtoms.ts";
+import {
+	type BackgroundRendererOptions,
+	getBackgroundColorPickerValue,
+} from "../../utils/background-renderer-options.ts";
 import {
 	db,
 	type ImportedSongVideoBackground,
@@ -32,6 +44,7 @@ import {
 	type SongVideoBaseRendererMode,
 } from "../../utils/db-client.ts";
 import { useDbQuery } from "../../utils/use-db-query.ts";
+import { SongBackgroundRendererOptions } from "./background-renderer-options.tsx";
 import { SongContext } from "./song-ctx.ts";
 import styles from "./video-background.module.css";
 
@@ -66,23 +79,10 @@ function getErrorMessage(error: unknown): string {
 }
 
 function getColorPickerValue(value: string): string {
-	const normalized = value.trim().toLowerCase();
-	if (/^#[0-9a-f]{6}$/.test(normalized)) return normalized;
-	if (/^#[0-9a-f]{3}$/.test(normalized)) {
-		return `#${normalized
-			.slice(1)
-			.split("")
-			.map((part) => part.repeat(2))
-			.join("")}`;
-	}
-	const rgb = normalized.match(
-		/^rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$/,
+	return getBackgroundColorPickerValue(
+		value,
+		DEFAULT_VIDEO_BASE_CSS_BACKGROUND,
 	);
-	if (!rgb) return DEFAULT_VIDEO_BASE_CSS_BACKGROUND;
-	return `#${rgb
-		.slice(1)
-		.map((part) => Math.min(255, Number(part)).toString(16).padStart(2, "0"))
-		.join("")}`;
 }
 
 function probeVideoMetadata(source: string): Promise<VideoMetadata> {
@@ -902,6 +902,13 @@ function getCurrentGlobalRendererMode(): SongVideoBaseRendererMode {
 export const SongVideoBackgroundEditor: FC = () => {
 	const song = useContext(SongContext);
 	const { t } = useTranslation();
+	const globalOptions: BackgroundRendererOptions = {
+		fps: useAtomValue(lyricBackgroundFPSAtom),
+		animationIntensity: useAtomValue(lyricBackgroundAnimationIntensityAtom),
+		renderScale: useAtomValue(lyricBackgroundRenderScaleAtom),
+		staticMode: useAtomValue(lyricBackgroundStaticModeAtom),
+		cssBackground: useAtomValue(cssBackgroundPropertyAtom),
+	};
 	const mutatingRef = useRef(false);
 	const [mutating, setMutating] = useState(false);
 	const [opacityPercent, setOpacityPercent] = useState(
@@ -963,8 +970,9 @@ export const SongVideoBackgroundEditor: FC = () => {
 			videoOpacity: number,
 			videoBaseRendererMode: SongVideoBaseRendererMode,
 			videoBaseCssBackground: string,
+			rendererOptions = backgroundOverride?.rendererOptions ?? globalOptions,
 		) => {
-			if (!song || mutatingRef.current) return;
+			if (!song || mutatingRef.current) return false;
 			mutatingRef.current = true;
 			setMutating(true);
 			try {
@@ -976,9 +984,15 @@ export const SongVideoBackgroundEditor: FC = () => {
 					videoBaseRendererMode,
 					videoBaseCssBackground:
 						videoBaseCssBackground.trim() || DEFAULT_VIDEO_BASE_CSS_BACKGROUND,
+					rendererOptions,
 				});
 				refetch();
+				return true;
 			} catch (error) {
+				setVideoBaseCssBackground(
+					backgroundOverride?.videoBaseCssBackground ??
+						DEFAULT_VIDEO_BASE_CSS_BACKGROUND,
+				);
 				setOpacityPercent(
 					Math.round(
 						Math.min(
@@ -991,12 +1005,13 @@ export const SongVideoBackgroundEditor: FC = () => {
 					),
 				);
 				reportMutationError(error);
+				return false;
 			} finally {
 				mutatingRef.current = false;
 				setMutating(false);
 			}
 		},
-		[backgroundOverride?.videoOpacity, refetch, reportMutationError, song],
+		[backgroundOverride, globalOptions, refetch, reportMutationError, song],
 	);
 
 	const handleOverrideEnabledChange = useCallback(
@@ -1038,6 +1053,15 @@ export const SongVideoBackgroundEditor: FC = () => {
 	const persistedVideoBaseCssBackground =
 		backgroundOverride?.videoBaseCssBackground ??
 		DEFAULT_VIDEO_BASE_CSS_BACKGROUND;
+	const saveRendererOptions = (options: BackgroundRendererOptions) =>
+		saveOverride(
+			rendererMode,
+			backgroundOverride?.dualLayer ?? DEFAULT_DUAL_LAYER,
+			backgroundOverride?.videoOpacity ?? DEFAULT_VIDEO_OPACITY,
+			videoBaseRendererMode,
+			persistedVideoBaseCssBackground,
+			options,
+		);
 
 	return (
 		<Flex direction="column" gap="4">
@@ -1134,6 +1158,14 @@ export const SongVideoBackgroundEditor: FC = () => {
 							</Flex>
 						</label>
 					)}
+					{overrideEnabled && rendererMode !== "video" && (
+						<SongBackgroundRendererOptions
+							rendererMode={rendererMode}
+							options={backgroundOverride?.rendererOptions ?? globalOptions}
+							disabled={controlsDisabled}
+							onSave={saveRendererOptions}
+						/>
+					)}
 				</Flex>
 			</Card>
 
@@ -1228,6 +1260,16 @@ export const SongVideoBackgroundEditor: FC = () => {
 										</Flex>
 									</label>
 
+									{videoBaseRendererMode !== "css-bg" && (
+										<SongBackgroundRendererOptions
+											rendererMode={videoBaseRendererMode}
+											options={
+												backgroundOverride.rendererOptions ?? globalOptions
+											}
+											disabled={controlsDisabled}
+											onSave={saveRendererOptions}
+										/>
+									)}
 									{videoBaseRendererMode === "css-bg" && (
 										<div>
 											<Text as="div">

@@ -668,6 +668,7 @@ async fn save_song_video_background_record(
             video_opacity: Set(0.4),
             video_base_renderer_mode: Set("css-bg".to_owned()),
             video_base_css_background: Set("#000000".to_owned()),
+            renderer_options: Set(None),
             updated_at: Set(updated_at),
         })
         .exec(&transaction)

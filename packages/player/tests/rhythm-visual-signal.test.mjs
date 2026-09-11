@@ -3169,7 +3169,7 @@ test("播放器挂载低频桥，并独立同步 Mesh 节拍信号与强度倍�
 	);
 	assert.match(
 		videoBackgroundSource,
-		/useEffect\(\(\) => \{\s*MeshGradientRenderer\.setRhythmVisualIntensity\(\s*backgroundAnimationIntensity,?\s*\);\s*\}, \[backgroundAnimationIntensity\]\)/,
+		/useEffect\(\(\) => \{\s*MeshGradientRenderer\.setRhythmVisualIntensity\(\s*rendererOptions\.animationIntensity,?\s*\);\s*\}, \[rendererOptions\.animationIntensity\]\)/,
 	);
 });
 

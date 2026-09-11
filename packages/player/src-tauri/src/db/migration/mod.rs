@@ -5,6 +5,7 @@ pub mod m20260728_000004_add_playlist_import_constraints;
 pub mod m20260813_000005_add_song_video_backgrounds;
 pub mod m20260820_000006_add_song_background_overrides;
 pub mod m20260820_000007_add_video_base_background;
+pub mod m20260910_000008_add_background_renderer_options;
 
 use sea_orm::{ConnectionTrait, DatabaseConnection, TransactionTrait};
 use sea_orm_migration::prelude::*;
@@ -71,6 +72,10 @@ pub async fn run_migrations(db: &DatabaseConnection) -> Result<(), DbErr> {
         // Video mode keeps its own base renderer so per-song composition never
         // mutates or implicitly follows the global lyric background setting.
         m20260820_000007_add_video_base_background::Migration
+            .up(&manager)
+            .await?;
+
+        m20260910_000008_add_background_renderer_options::Migration
             .up(&manager)
             .await?;
 

@@ -32,6 +32,7 @@ import {
 	lyricBackgroundAnimationIntensityAtom,
 	musicTimelineJumpAtom,
 } from "../../states/appAtoms.ts";
+import { resolveBackgroundRendererOptions } from "../../utils/background-renderer-options.ts";
 import {
 	db,
 	type SongBackgroundOverride,
@@ -161,10 +162,6 @@ export const SongVideoBackground: FC = () => {
 	const pageVisible = usePageVisibility();
 	const reducedMotion = useReducedMotion();
 
-	useEffect(() => {
-		MeshGradientRenderer.setRhythmVisualIntensity(backgroundAnimationIntensity);
-	}, [backgroundAnimationIntensity]);
-
 	const videoRef = useRef<HTMLVideoElement>(null);
 	const activeMediaKeyRef = useRef<string | null>(null);
 	const mediaStateRef = useRef<VideoMediaState>({
@@ -178,13 +175,7 @@ export const SongVideoBackground: FC = () => {
 	const lastHardSyncRef = useRef(0);
 	const musicPlayingRef = useRef(musicPlaying);
 	const presentationAllowedRef = useRef(lyricPageOpened && pageVisible);
-	const dynamicPlaybackAllowedRef = useRef(
-		musicPlaying &&
-			lyricPageOpened &&
-			pageVisible &&
-			!reducedMotion &&
-			!staticMode,
-	);
+	const dynamicPlaybackAllowedRef = useRef(false);
 	const musicClockRef = useRef<MusicClockSample>({
 		positionMs: store.get(musicPlayingPositionAtom),
 		observedAt: performance.now(),
@@ -200,13 +191,6 @@ export const SongVideoBackground: FC = () => {
 
 	mediaStateRef.current = mediaState;
 	presentationAllowedRef.current = lyricPageOpened && pageVisible;
-	dynamicPlaybackAllowedRef.current =
-		musicPlaying &&
-		lyricPageOpened &&
-		pageVisible &&
-		!reducedMotion &&
-		!staticMode;
-
 	const { data: queriedBackground } = useDbQuery<QueriedSongBackground>(
 		async () => {
 			if (!enableExperimentalFeatures || !musicId) {
@@ -230,6 +214,30 @@ export const SongVideoBackground: FC = () => {
 		enableExperimentalFeatures && queriedBackground.video?.songId === musicId
 			? queriedBackground.video
 			: null;
+	const rendererOptions = resolveBackgroundRendererOptions(
+		{
+			fps,
+			animationIntensity: backgroundAnimationIntensity,
+			renderScale,
+			staticMode,
+			cssBackground,
+		},
+		backgroundOverride,
+		musicId,
+		enableExperimentalFeatures,
+	);
+	const effectiveStaticMode = rendererOptions.staticMode;
+	dynamicPlaybackAllowedRef.current =
+		musicPlaying &&
+		lyricPageOpened &&
+		pageVisible &&
+		!reducedMotion &&
+		!effectiveStaticMode;
+	useEffect(() => {
+		MeshGradientRenderer.setRhythmVisualIntensity(
+			rendererOptions.animationIntensity,
+		);
+	}, [rendererOptions.animationIntensity]);
 	const videoEnabled =
 		backgroundOverride?.overrideEnabled === true &&
 		backgroundOverride.rendererMode === "video" &&
@@ -320,7 +328,7 @@ export const SongVideoBackground: FC = () => {
 		lyricPageOpened &&
 		pageVisible &&
 		!reducedMotion &&
-		!staticMode;
+		!effectiveStaticMode;
 	const syncOnSeek = background?.syncOnSeek ?? true;
 
 	const readMusicTimeMs = useCallback(() => {
@@ -672,7 +680,7 @@ export const SongVideoBackground: FC = () => {
 		musicPlaying,
 		pageVisible,
 		reducedMotion,
-		staticMode,
+		effectiveStaticMode,
 	]);
 
 	useEffect(() => {
@@ -868,13 +876,13 @@ export const SongVideoBackground: FC = () => {
 	const basePlaying =
 		!videoCoversBase && lyricPageOpened && pageVisible && !reducedMotion;
 	const baseStatic =
-		staticMode || !lyricPageOpened || !pageVisible || reducedMotion;
+		effectiveStaticMode || !lyricPageOpened || !pageVisible || reducedMotion;
 	const fitMode = resolveObjectFit(background?.fitMode);
 	const effectiveCssBackground =
 		backgroundOverride?.overrideEnabled === true &&
 		backgroundOverride.rendererMode === "video"
 			? resolveVideoBaseCssBackground(backgroundOverride.videoBaseCssBackground)
-			: cssBackground;
+			: rendererOptions.cssBackground;
 
 	return (
 		<div className={styles.layers} data-amll-song-video-background="">
@@ -888,9 +896,9 @@ export const SongVideoBackground: FC = () => {
 					<BackgroundRender
 						album={musicCover}
 						albumIsVideo={musicCoverIsVideo}
-						fps={fps}
+						fps={rendererOptions.fps}
 						lowFreqVolume={lowFreqVolume}
-						renderScale={renderScale}
+						renderScale={rendererOptions.renderScale}
 						renderer={renderer}
 						playing={basePlaying}
 						staticMode={baseStatic}
