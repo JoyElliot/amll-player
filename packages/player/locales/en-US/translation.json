@@ -151,10 +151,12 @@
 	},
 	"page": {
 		"about": {
+			"contributorsTitle": "Contributors",
 			"credits": "Made by SteveXMH and all Contributors from GitHub",
 			"downloading": "Downloading updates…… {progressText}",
 			"installing": "Installing update, player will restart, wait a minute...",
 			"installUpdate": "Install this update",
+			"loadingContributors": "Loading contributors…",
 			"newVersion": "Available update from {currentVersion} to {nextVersion}",
 			"subtitle": "About",
 			"updating": "Player will restart after update, hold on a second...."

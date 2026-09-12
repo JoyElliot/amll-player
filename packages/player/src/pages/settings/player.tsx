@@ -34,10 +34,12 @@ import {
 	verticalCoverLayoutAtom,
 } from "@applemusic-like-lyrics/react-full";
 import {
+	Avatar,
 	Box,
 	Button,
 	Card,
 	Flex,
+	Grid,
 	Select,
 	Separator,
 	Slider,
@@ -50,6 +52,7 @@ import {
 } from "@radix-ui/themes";
 import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { platform } from "@tauri-apps/plugin-os";
 import { atom, useAtom, useAtomValue, type WritableAtom } from "jotai";
 import { loadable } from "jotai/utils";
@@ -1419,6 +1422,126 @@ const TaskbarLyricSettings = () => {
 	);
 };
 
+const openLink = async (url: string) => {
+	if (!url) return;
+	try {
+		await openUrl(url);
+	} catch {
+		window.open(url, "_blank");
+	}
+};
+
+interface Contributor {
+	id: number;
+	login: string;
+	avatar: string;
+	url: string;
+}
+
+const ContributorsSection: FC = () => {
+	const { t } = useTranslation();
+	const [contributors, setContributors] = useState<Contributor[]>([]);
+	const [loading, setLoading] = useState(true);
+
+	useEffect(() => {
+		const fetchData = async () => {
+			try {
+				const response = await fetch(
+					"https://api.github.com/repos/amll-dev/amll-player/contributors?per_page=100&anon=true",
+				);
+				if (response.ok) {
+					const data = await response.json();
+					if (Array.isArray(data)) {
+						const list: Contributor[] = data
+							.filter(
+								(item: any) =>
+									item.login &&
+									item.login !== "type-bot" &&
+									item.type !== "Bot" &&
+									!item.login.endsWith("[bot]"),
+							)
+							.map((item: any) => ({
+								id: item.id,
+								login: item.login,
+								avatar: item.avatar_url || "",
+								url: item.html_url || `https://github.com/${item.login}`,
+							}));
+						setContributors(list);
+					}
+				}
+			} catch (error) {
+				console.error("Failed to fetch contributors:", error);
+			} finally {
+				setLoading(false);
+			}
+		};
+
+		fetchData();
+	}, []);
+
+	if (loading) {
+		return (
+			<Text color="gray" size="2" my="2" as="div">
+				{t("page.about.loadingContributors", "正在加载贡献者列表…")}
+			</Text>
+		);
+	}
+
+	if (contributors.length === 0) {
+		return null;
+	}
+
+	const renderContributorCard = (item: Contributor) => (
+		<Card
+			key={item.id}
+			asChild
+			style={{
+				cursor: "pointer",
+				textDecoration: "none",
+				color: "inherit",
+				maxWidth: "30rem",
+			}}
+		>
+			<a
+				href={item.url}
+				target="_blank"
+				rel="noopener noreferrer"
+				onClick={(e) => {
+					e.preventDefault();
+					openLink(item.url);
+				}}
+			>
+				<Flex align="center" gap="2">
+					<Avatar
+						size="2"
+						radius="full"
+						src={item.avatar}
+						fallback={item.login.substring(0, 2).toUpperCase()}
+					/>
+					<Text weight="bold" size="2" truncate style={{ overflow: "hidden" }}>
+						{item.login}
+					</Text>
+				</Flex>
+			</a>
+		</Card>
+	);
+
+	return (
+		<Box my="4">
+			<SubTitle my="2">
+				{t("page.about.contributorsTitle", "贡献者")}
+			</SubTitle>
+			<Grid
+				style={{ gridTemplateColumns: "repeat(auto-fill, minmax(20rem, 1fr))" }}
+				gap="3"
+				my="2"
+			>
+				{contributors.map(renderContributorCard)}
+			</Grid>
+		</Box>
+	);
+};
+
 const AboutSettings = () => {
 	const { t } = useTranslation();
 	const updateInfo = useAtomValue(updateInfoAtom);
@@ -1441,6 +1564,7 @@ const AboutSettings = () => {
 					由 SteveXMH 及其所有 Github 协作者共同开发
 				</Trans>
 			</Text>
+			<ContributorsSection />
 			<Suspense>
 				{updateInfo && (
 					<>
