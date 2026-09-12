@@ -501,7 +501,7 @@ export const Component: FC = () => {
 	}, [playlist, param.id, t, queueManager]);
 
 	const onPlayList = useCallback(
-		async (songIndex: number | undefined = 0, shuffle = false) => {
+		async (songIndex: number | undefined, shuffle = false) => {
 			if (playlist === undefined || !queueManager) return;
 			const collected = await db.playlists.getSongs(Number(param.id));
 			if (shuffle) {
