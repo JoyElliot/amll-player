@@ -153,6 +153,7 @@ impl Default for BackgroundTrayMenuLabels {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct BackgroundTrayMenuState {
+    always_tray: bool,
     music_name: String,
     artist: String,
     lyric: String,
@@ -2157,6 +2158,16 @@ fn background_tray_tooltip(state: &BackgroundTrayMenuState) -> String {
 }
 
 #[cfg(target_os = "windows")]
+fn refresh_background_tray_tooltip(app: &AppHandle) -> Result<(), String> {
+    let Some(tray) = app.tray_by_id(BACKGROUND_TRAY_ID) else {
+        return Ok(());
+    };
+    let state = current_background_tray_menu_state();
+    tray.set_tooltip(Some(background_tray_tooltip(&state)))
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "windows")]
 fn refresh_background_tray(app: &AppHandle) -> Result<(), String> {
     let Some(tray) = app.tray_by_id(BACKGROUND_TRAY_ID) else {
         return Ok(());
@@ -2244,9 +2255,21 @@ fn ensure_background_tray(app: &AppHandle) -> Result<(), String> {
 }
 
 #[cfg(target_os = "windows")]
+fn should_keep_background_tray(always_tray: bool, hidden: bool, main_exists: bool) -> bool {
+    (always_tray || hidden) && main_exists
+}
+
+#[cfg(target_os = "windows")]
 fn background_tray_is_required(app: &AppHandle) -> bool {
-    MAIN_WINDOW_HIDDEN_TO_BACKGROUND.load(Ordering::Acquire)
-        && app.get_webview_window("main").is_some()
+    let always_tray = background_tray_menu_state()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .always_tray;
+    should_keep_background_tray(
+        always_tray,
+        MAIN_WINDOW_HIDDEN_TO_BACKGROUND.load(Ordering::Acquire),
+        app.get_webview_window("main").is_some(),
+    )
 }
 
 #[cfg(target_os = "windows")]
@@ -2294,6 +2317,11 @@ pub(crate) fn reconcile_background_restore_entry(app: &AppHandle) {
 #[cfg(target_os = "windows")]
 pub(crate) fn try_clear_background_restore_entry(app: &AppHandle) {
     MAIN_WINDOW_HIDDEN_TO_BACKGROUND.store(false, Ordering::Release);
+    // A destroyed main window must not leave a persistent restore icon behind.
+    background_tray_menu_state()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .always_tray = false;
     hide_background_tray_player(app);
     reconcile_background_restore_entry(app);
 }
@@ -2378,7 +2406,7 @@ pub fn update_background_tray_menu(
     state: BackgroundTrayMenuState,
 ) -> Result<(), String> {
     prepare_background_tray_player(&app);
-    let native_menu_changed = {
+    let (native_menu_changed, tooltip_changed, tray_policy_changed) = {
         let mut current = background_tray_menu_state()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -2389,12 +2417,21 @@ pub fn update_background_tray_menu(
             || current.taskbar_lyric_enabled != state.taskbar_lyric_enabled
             || current.cover != state.cover
             || current.labels != state.labels;
+        let tooltip_changed =
+            changed && background_tray_tooltip(&current) != background_tray_tooltip(&state);
+        let tray_policy_changed = current.always_tray != state.always_tray;
         *current = state;
-        changed
+        (changed, tooltip_changed, tray_policy_changed)
     };
+    if tray_policy_changed {
+        reconcile_background_restore_entry(&app);
+    }
     emit_background_tray_player_state(&app)?;
     if native_menu_changed && !BACKGROUND_TRAY_PLAYER_READY.load(Ordering::Acquire) {
         refresh_background_tray(&app)?;
+    } else if tooltip_changed {
+        // The native tooltip remains visible when the custom player owns the menu.
+        refresh_background_tray_tooltip(&app)?;
     }
     Ok(())
 }
@@ -2487,6 +2524,39 @@ pub async fn show_main_window_from_background(app: AppHandle) -> Result<(), Stri
 #[cfg(all(test, target_os = "windows"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn persistent_tray_survives_restore_and_respects_main_window_teardown() {
+        // Policy, hidden-to-background, main-exists, expected icon visibility.
+        for (persistent, hidden, main_exists, expected) in [
+            (true, false, true, true),
+            (true, true, true, true),
+            (false, false, true, false),
+            (false, true, true, true),
+            (true, false, false, false),
+            (true, true, false, false),
+            (false, false, false, false),
+            (false, true, false, false),
+        ] {
+            assert_eq!(
+                should_keep_background_tray(persistent, hidden, main_exists),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn tray_state_accepts_persistent_mode_and_legacy_payloads() {
+        let legacy: BackgroundTrayMenuState = serde_json::from_str("{}").unwrap();
+        assert!(!legacy.always_tray);
+        let persistent: BackgroundTrayMenuState =
+            serde_json::from_str(r#"{"alwaysTray":true}"#).unwrap();
+        assert!(persistent.always_tray);
+        assert_eq!(
+            serde_json::to_value(persistent).unwrap()["alwaysTray"],
+            true
+        );
+    }
 
     const PRIMARY_MONITOR: PhysicalWindowRect = PhysicalWindowRect {
         x: 0,

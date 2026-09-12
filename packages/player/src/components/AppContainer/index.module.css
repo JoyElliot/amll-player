@@ -40,6 +40,16 @@
 	clip-path: var(--amll-playlist-underlay-clip, none);
 }
 
+.main::-webkit-scrollbar-track {
+	/* The system titlebar overlays the route; its drag region is not a scroll rail. */
+	margin-top: var(--system-titlebar-height, 0px);
+}
+
+.main[data-amll-route-scroll-locked]::-webkit-scrollbar-thumb {
+	/* Hide the transient rail without changing its gutter or the route scroll offset. */
+	box-shadow: none;
+}
+
 :global(html[data-amll-playlist-capturing]) .main {
 	/* A refresh must capture the complete page, without the previous hole. */
 	clip-path: none;

@@ -60,7 +60,7 @@ test("底栏边界、底色与歌词内容由同一个播放面板承载", () =>
 	);
 	assert.match(
 		appContainer,
-		/className=\{styles\.main\}[\s\S]*inert=\{playbarExpanded \? true : undefined\}/,
+		/className=\{styles\.main\}[\s\S]*inert=\{routeScrollLocked \? true : undefined\}/,
 	);
 	assert.match(
 		appContainerStyle,

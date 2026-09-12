@@ -18,8 +18,12 @@ import { useAtom, useAtomValue } from "jotai";
 import { type FC, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { getReachedTrayLyric } from "../../pages/tray-player/text.ts";
-import { enableTaskbarLyricAtom } from "../../states/appAtoms.ts";
+import {
+	enableTaskbarLyricAtom,
+	windowCloseBehaviorAtom,
+} from "../../states/appAtoms.ts";
 import { getVideoThumbnail } from "../../utils/video-thumbnail.ts";
+import { WINDOW_CLOSE_BEHAVIOR_ALWAYS_TRAY } from "../../utils/window-lifecycle.ts";
 import {
 	BACKGROUND_TRAY_COMMAND_EVENT,
 	type BackgroundTrayCommandPayload,
@@ -107,6 +111,8 @@ async function rasterizeTrayCover(
 export const TrayBridge: FC = () => {
 	const { t } = useTranslation();
 	const isWindows = platform() === "windows";
+	const windowCloseBehavior = useAtomValue(windowCloseBehaviorAtom);
+	const alwaysTray = windowCloseBehavior === WINDOW_CLOSE_BEHAVIOR_ALWAYS_TRAY;
 	const musicId = useAtomValue(musicIdAtom);
 	const musicName = useAtomValue(musicNameAtom);
 	const musicArtists = useAtomValue(musicArtistsAtom);
@@ -161,6 +167,7 @@ export const TrayBridge: FC = () => {
 			.join(", ");
 		void invoke(CMD_UPDATE_BACKGROUND_TRAY_MENU, {
 			state: {
+				alwaysTray,
 				musicName,
 				artist,
 				lyric: trayLyric,
@@ -188,6 +195,7 @@ export const TrayBridge: FC = () => {
 		});
 	}, [
 		activeCover,
+		alwaysTray,
 		isWindows,
 		musicArtists,
 		musicId,

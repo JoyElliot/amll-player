@@ -304,6 +304,7 @@
 					"label": "閉じるときの動作",
 					"menu": {
 						"alwaysMinimize": "常にタスクトレイへ最小化",
+						"alwaysTray": "トレイに常駐",
 						"exit": "すぐに終了",
 						"minimizeWhenPlaying": "再生中は最小化"
 					}

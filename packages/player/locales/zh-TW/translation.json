@@ -304,6 +304,7 @@
 					"label": "關閉選項",
 					"menu": {
 						"alwaysMinimize": "一律最小化",
+						"alwaysTray": "常駐系統匣",
 						"exit": "直接退出",
 						"minimizeWhenPlaying": "播放時最小化"
 					}

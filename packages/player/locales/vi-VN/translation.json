@@ -304,6 +304,7 @@
 					"label": "Hành vi khi đóng",
 					"menu": {
 						"alwaysMinimize": "Luôn thu nhỏ vào khay hệ thống",
+						"alwaysTray": "Luôn hiện biểu tượng khay",
 						"exit": "Thoát ngay",
 						"minimizeWhenPlaying": "Thu nhỏ khi đang phát"
 					}

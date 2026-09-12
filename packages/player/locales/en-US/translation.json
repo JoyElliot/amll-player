@@ -306,6 +306,7 @@
 					"label": "Close behavior",
 					"menu": {
 						"alwaysMinimize": "Always minimize to tray",
+						"alwaysTray": "Always show tray icon",
 						"exit": "Exit immediately",
 						"minimizeWhenPlaying": "Minimize while playing"
 					}

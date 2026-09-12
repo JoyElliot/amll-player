@@ -29,6 +29,7 @@ export interface BackgroundTrayMenuLabels {
 }
 
 export interface BackgroundTrayMenuState {
+	alwaysTray: boolean;
 	musicName: string;
 	artist: string;
 	lyric: string;

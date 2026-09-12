@@ -8,11 +8,13 @@ export const WINDOW_CLOSE_BEHAVIOR_EXIT = "exit" as const;
 export const WINDOW_CLOSE_BEHAVIOR_MINIMIZE_WHEN_PLAYING =
 	"minimize-when-playing" as const;
 export const WINDOW_CLOSE_BEHAVIOR_ALWAYS_MINIMIZE = "always-minimize" as const;
+export const WINDOW_CLOSE_BEHAVIOR_ALWAYS_TRAY = "always-tray" as const;
 
 export type WindowCloseBehaviorMode =
 	| typeof WINDOW_CLOSE_BEHAVIOR_EXIT
 	| typeof WINDOW_CLOSE_BEHAVIOR_MINIMIZE_WHEN_PLAYING
-	| typeof WINDOW_CLOSE_BEHAVIOR_ALWAYS_MINIMIZE;
+	| typeof WINDOW_CLOSE_BEHAVIOR_ALWAYS_MINIMIZE
+	| typeof WINDOW_CLOSE_BEHAVIOR_ALWAYS_TRAY;
 
 export const DEFAULT_WINDOW_CLOSE_BEHAVIOR: WindowCloseBehaviorMode =
 	WINDOW_CLOSE_BEHAVIOR_MINIMIZE_WHEN_PLAYING;
@@ -23,7 +25,8 @@ export function normalizeWindowCloseBehavior(
 	if (
 		value === WINDOW_CLOSE_BEHAVIOR_EXIT ||
 		value === WINDOW_CLOSE_BEHAVIOR_MINIMIZE_WHEN_PLAYING ||
-		value === WINDOW_CLOSE_BEHAVIOR_ALWAYS_MINIMIZE
+		value === WINDOW_CLOSE_BEHAVIOR_ALWAYS_MINIMIZE ||
+		value === WINDOW_CLOSE_BEHAVIOR_ALWAYS_TRAY
 	) {
 		return value;
 	}
@@ -37,7 +40,11 @@ export function getMainWindowCloseAction(
 	playbackRequested: boolean,
 ): MainWindowCloseAction {
 	if (behavior === WINDOW_CLOSE_BEHAVIOR_EXIT) return "exit";
-	if (behavior === WINDOW_CLOSE_BEHAVIOR_ALWAYS_MINIMIZE) return "hide";
+	if (
+		behavior === WINDOW_CLOSE_BEHAVIOR_ALWAYS_MINIMIZE ||
+		behavior === WINDOW_CLOSE_BEHAVIOR_ALWAYS_TRAY
+	)
+		return "hide";
 	return playbackRequested ? "hide" : "exit";
 }
 

@@ -8,6 +8,7 @@ import {
 	isTaskbarRestoreClick,
 	normalizeWindowCloseBehavior,
 	WINDOW_CLOSE_BEHAVIOR_ALWAYS_MINIMIZE,
+	WINDOW_CLOSE_BEHAVIOR_ALWAYS_TRAY,
 	WINDOW_CLOSE_BEHAVIOR_EXIT,
 	WINDOW_CLOSE_BEHAVIOR_MINIMIZE_WHEN_PLAYING,
 } from "../src/utils/window-lifecycle.ts";
@@ -33,7 +34,7 @@ const playerCore = readProjectFile("../../player-core/src/player.rs");
 const settings = readProjectFile("../src/pages/settings/player.tsx");
 const zhCn = JSON.parse(readProjectFile("../locales/zh-CN/translation.json"));
 
-test("关闭策略覆盖三档模式与同步播放意图", () => {
+test("关闭策略覆盖四档模式与同步播放意图", () => {
 	const rows = [
 		[WINDOW_CLOSE_BEHAVIOR_EXIT, false, "exit"],
 		[WINDOW_CLOSE_BEHAVIOR_EXIT, true, "exit"],
@@ -41,6 +42,8 @@ test("关闭策略覆盖三档模式与同步播放意图", () => {
 		[WINDOW_CLOSE_BEHAVIOR_MINIMIZE_WHEN_PLAYING, true, "hide"],
 		[WINDOW_CLOSE_BEHAVIOR_ALWAYS_MINIMIZE, false, "hide"],
 		[WINDOW_CLOSE_BEHAVIOR_ALWAYS_MINIMIZE, true, "hide"],
+		[WINDOW_CLOSE_BEHAVIOR_ALWAYS_TRAY, false, "hide"],
+		[WINDOW_CLOSE_BEHAVIOR_ALWAYS_TRAY, true, "hide"],
 	];
 	for (const [behavior, playing, expected] of rows) {
 		assert.equal(getMainWindowCloseAction(behavior, playing), expected);
@@ -53,6 +56,7 @@ test("关闭策略覆盖三档模式与同步播放意图", () => {
 		WINDOW_CLOSE_BEHAVIOR_EXIT,
 		WINDOW_CLOSE_BEHAVIOR_MINIMIZE_WHEN_PLAYING,
 		WINDOW_CLOSE_BEHAVIOR_ALWAYS_MINIMIZE,
+		WINDOW_CLOSE_BEHAVIOR_ALWAYS_TRAY,
 	]) {
 		assert.equal(normalizeWindowCloseBehavior(valid), valid);
 	}
@@ -88,7 +92,7 @@ test("关闭策略覆盖三档模式与同步播放意图", () => {
 	);
 });
 
-test("关闭选项保持默认项居中并使用精简文案", () => {
+test("常驻托盘位于关闭选项首位并保留原有三项顺序", () => {
 	const menu = settings.slice(
 		settings.indexOf("const windowCloseBehaviorMenu"),
 		settings.indexOf(
@@ -97,11 +101,17 @@ test("关闭选项保持默认项居中并使用精简文案", () => {
 		),
 	);
 	const alwaysIndex = menu.indexOf("WINDOW_CLOSE_BEHAVIOR_ALWAYS_MINIMIZE");
+	const trayIndex = menu.indexOf("WINDOW_CLOSE_BEHAVIOR_ALWAYS_TRAY");
 	const playingIndex = menu.indexOf(
 		"WINDOW_CLOSE_BEHAVIOR_MINIMIZE_WHEN_PLAYING",
 	);
 	const exitIndex = menu.indexOf("WINDOW_CLOSE_BEHAVIOR_EXIT");
 	assert.ok(alwaysIndex >= 0 && alwaysIndex < playingIndex);
+	assert.ok(trayIndex >= 0 && trayIndex < alwaysIndex);
+	assert.equal(
+		zhCn.page.settings.general.windowCloseBehavior.menu.alwaysTray,
+		"常驻托盘",
+	);
 	assert.ok(playingIndex < exitIndex);
 	assert.match(menu, /"播放时最小化"/);
 	assert.match(settings, /"选择关闭时播放器是否最小化到任务栏托盘"/);

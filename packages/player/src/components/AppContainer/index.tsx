@@ -5,6 +5,8 @@ import {
 	type FC,
 	type PropsWithChildren,
 	type ReactNode,
+	useLayoutEffect,
+	useRef,
 	useState,
 } from "react";
 import styles from "./index.module.css";
@@ -27,6 +29,45 @@ export const AppContainer: FC<
 }) => {
 	const [sidebarWidth, setSidebarWidth] = useAtom(sidebarWidthAtom);
 	const [dragging, setDragging] = useState(false);
+	const playbarRef = useRef<HTMLDivElement>(null);
+	const previousExpandedRef = useRef(playbarExpanded);
+	const [sheetTransitioning, setSheetTransitioning] = useState(false);
+	const routeScrollLocked = playbarExpanded || sheetTransitioning;
+
+	useLayoutEffect(() => {
+		if (previousExpandedRef.current === playbarExpanded) return;
+		previousExpandedRef.current = playbarExpanded;
+		setSheetTransitioning(true);
+		let cancelled = false;
+		let frame = 0;
+		const waitForSettledHeight = () => {
+			if (cancelled) return;
+			const transitions =
+				playbarRef.current
+					?.getAnimations()
+					.filter(
+						(animation) =>
+							"transitionProperty" in animation &&
+							animation.transitionProperty === "height" &&
+							(animation.playState === "running" || animation.pending),
+					) ?? [];
+			if (!transitions.length) {
+				setSheetTransitioning(false);
+				return;
+			}
+			// Resize may replace a transition. Recheck before releasing the route.
+			void Promise.allSettled(
+				transitions.map((animation) => animation.finished),
+			).then(() => {
+				if (!cancelled) frame = requestAnimationFrame(waitForSettledHeight);
+			});
+		};
+		frame = requestAnimationFrame(waitForSettledHeight);
+		return () => {
+			cancelled = true;
+			cancelAnimationFrame(frame);
+		};
+	}, [playbarExpanded]);
 	const onSidebarDraggerMouseDown = () => {
 		setDragging(true);
 		const onMouseMove = (evt: MouseEvent) => {
@@ -66,12 +107,14 @@ export const AppContainer: FC<
 			<div
 				className={styles.main}
 				data-amll-player-main=""
-				inert={playbarExpanded ? true : undefined}
+				data-amll-route-scroll-locked={routeScrollLocked ? "" : undefined}
+				inert={routeScrollLocked ? true : undefined}
 			>
 				{children}
 			</div>
 			{(playbar || playbarExpandedContent) && (
 				<div
+					ref={playbarRef}
 					className={classNames(
 						styles.playbar,
 						playbarExpanded && styles.playbarExpanded,

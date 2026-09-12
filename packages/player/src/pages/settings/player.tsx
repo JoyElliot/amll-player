@@ -97,6 +97,7 @@ import {
 import { restartApp } from "../../utils/player.ts";
 import {
 	WINDOW_CLOSE_BEHAVIOR_ALWAYS_MINIMIZE,
+	WINDOW_CLOSE_BEHAVIOR_ALWAYS_TRAY,
 	WINDOW_CLOSE_BEHAVIOR_EXIT,
 	WINDOW_CLOSE_BEHAVIOR_MINIMIZE_WHEN_PLAYING,
 	type WindowCloseBehaviorMode,
@@ -105,12 +106,21 @@ import { HomeBackgroundSettings } from "./home-background.tsx";
 import styles from "./index.module.css";
 
 const SettingEntry: FC<
-	PropsWithChildren<{ label: string; description?: string }>
-> = ({ label, description, children }) => {
+	PropsWithChildren<{
+		label: string;
+		description?: string;
+		keepControlInline?: boolean;
+	}>
+> = ({ label, description, keepControlInline = false, children }) => {
 	return (
 		<Card mt="2">
-			<Flex direction="row" align="center" gap="4" wrap="wrap">
-				<Flex direction="column" flexGrow="1">
+			<Flex
+				direction="row"
+				align="center"
+				gap="4"
+				wrap={keepControlInline ? "nowrap" : "wrap"}
+			>
+				<Flex direction="column" flexGrow="1" minWidth="0">
 					<Text as="div">{label}</Text>
 					<Text as="div" color="gray" size="2" className={styles.desc}>
 						{description}
@@ -149,8 +159,13 @@ const SwitchSettings: FC<
 > = ({ label, description, configAtom }) => {
 	const [value, setValue] = useAtom(configAtom);
 	return (
-		<SettingEntry label={label} description={description}>
-			<Switch aria-label={label} checked={value} onCheckedChange={setValue} />
+		<SettingEntry label={label} description={description} keepControlInline>
+			<Switch
+				aria-label={label}
+				checked={value}
+				onCheckedChange={setValue}
+				style={{ flexShrink: 0 }}
+			/>
 		</SettingEntry>
 	);
 };
@@ -395,6 +410,13 @@ const GeneralSettings = () => {
 	);
 	const windowCloseBehaviorMenu = useMemo(
 		() => [
+			{
+				label: t(
+					"page.settings.general.windowCloseBehavior.menu.alwaysTray",
+					"常驻托盘",
+				),
+				value: WINDOW_CLOSE_BEHAVIOR_ALWAYS_TRAY,
+			},
 			{
 				label: t(
 					"page.settings.general.windowCloseBehavior.menu.alwaysMinimize",

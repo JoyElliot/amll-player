@@ -21,6 +21,7 @@ import { getTrayControlPressReleaseDelay } from "./press-feedback.ts";
 import { resolveTrayPlayerText } from "./text.ts";
 
 const EMPTY_STATE: BackgroundTrayMenuState = {
+	alwaysTray: false,
 	musicName: "",
 	artist: "",
 	lyric: "",

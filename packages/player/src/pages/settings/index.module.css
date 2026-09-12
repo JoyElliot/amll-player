@@ -41,10 +41,29 @@
 }
 
 .contentArea {
-	flex-grow: 1;
+	flex: 1 1 0;
 	min-width: 0;
-	overflow-y: auto;
 	min-height: 0;
+	overflow: hidden auto;
+	scrollbar-gutter: stable;
+	/* Keep the native track in the existing page padding, even without overflow. */
+	--settings-scrollbar-space: var(--space-4);
+	margin-inline-end: calc(-1 * var(--settings-scrollbar-space));
+}
+
+.contentArea::-webkit-scrollbar {
+	width: var(--settings-scrollbar-space);
+}
+
+.contentArea::-webkit-scrollbar-thumb {
+	/* Preserve the original 8px visible thumb inside the narrower transparent track. */
+	border-inline-width: calc((var(--settings-scrollbar-space) - 8px) / 2);
+}
+
+@supports not (scrollbar-gutter: stable) {
+	.contentArea {
+		overflow-y: scroll;
+	}
 }
 
 .hamburgerButton {
