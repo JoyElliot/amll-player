@@ -2257,7 +2257,7 @@ function createMeshHarness() {
 				: 1;
 			const ambientAngle = (timeMs / 1e4) * 2;
 			const expectedAngle =
-				ambientAngle + (renderer.volume * 2 + kick) * safeIntensity * 1.5;
+				ambientAngle + renderer.volume * 2 * safeIntensity;
 			const sinAngle = uniforms.get("u_sinAngle");
 			const cosAngle = uniforms.get("u_cosAngle");
 			const actualAngle =
@@ -2278,6 +2278,8 @@ function createMeshHarness() {
 				breath: renderedBreath,
 				brightness: alpha * Math.max(0.5, 1 - renderedBreath * 0.5),
 				cosAngle,
+				flowOffsetX: uniforms.get("u_flowOffsetX"),
+				flowOffsetY: uniforms.get("u_flowOffsetY"),
 				kick,
 				rawBassVolume: renderer.volume,
 				sinAngle,
@@ -2286,7 +2288,7 @@ function createMeshHarness() {
 	};
 }
 
-test("歌词背景动画强度倍率保持呼吸基准并将旋转基准提升至 150%", () => {
+test("歌词背景动画强度倍率保持呼吸基准并恢复原版低频转动幅度", () => {
 	const sample = (intensity) => {
 		const harness = createMeshHarness();
 		harness.step(0, 0, {
@@ -2318,7 +2320,7 @@ test("歌词背景动画强度倍率保持呼吸基准并将旋转基准提升�
 	assert.ok(beatRotation(normal) > 0);
 	assert.ok(
 		Math.abs(
-			beatRotation(normal) - (normal.rawBassVolume * 2 + normal.kick) * 1.5,
+			beatRotation(normal) - normal.rawBassVolume * 2,
 		) < 1e-12,
 	);
 	assert.ok(Math.abs(gentle.breath - normal.breath * 0.5) < 1e-12);
@@ -2336,6 +2338,72 @@ test("歌词背景动画强度倍率保持呼吸基准并将旋转基准提升�
 	for (const result of [disabled, gentle, normal, strong]) {
 		assert.ok(Math.abs(result.brightness - 1) < 1e-12);
 		assert.ok(result.angleUniformError < 1e-12);
+	}
+});
+
+function mapMeshUV(sample, [u, v]) {
+	const x = u - 0.5;
+	const y = v - 0.5;
+	const scale = Math.max(0.001, 1 - sample.breath * 2);
+	return [
+		0.5 + scale * (sample.cosAngle * x - sample.sinAngle * y) + sample.flowOffsetX,
+		0.5 + scale * (sample.sinAngle * x + sample.cosAngle * y) + sample.flowOffsetY,
+	];
+}
+
+test("没有额外呼吸和极重拍时，常规低频区间的 UV 轨迹与 fork 前原版一致", () => {
+	for (const timeMs of [0, 1_000, 9_000, 31_000]) {
+		for (const rawBass of [0, 0.4, 1, 1.6]) {
+			const sample = createMeshHarness().step(timeMs, 16, { rawBass });
+			const originalVolume = rawBass / 10;
+			const originalAngle = timeMs / 1e4 * 2 + originalVolume * 2;
+			for (const [u, v] of [[0, 0], [0.5, 0.5], [1, 1], [0.2, 0.8]]) {
+				// Independent reference: the original shader rotates around (.2, .2).
+				const x = u - 0.2;
+				const y = v - 0.2;
+				const scale = Math.max(0.001, 1 - originalVolume * 2);
+				const expected = [
+					0.5 + scale * (Math.cos(originalAngle) * x - Math.sin(originalAngle) * y),
+					0.5 + scale * (Math.sin(originalAngle) * x + Math.cos(originalAngle) * y),
+				];
+				const actual = mapMeshUV(sample, [u, v]);
+				assert.ok(actual.every((value, axis) => Math.abs(value - expected[axis]) < 1e-12));
+			}
+		}
+	}
+});
+
+test("极重拍只沿原版轨道推动纹理，不增加纹理旋转或改变点间距离", () => {
+	const quiet = createMeshHarness().step(1_000, 16, { rawBass: 0.6 });
+	const heavy = createMeshHarness().step(1_000, 16, { rawBass: 0.6, strongBeat: 1 });
+	assert.equal(quiet.sinAngle, heavy.sinAngle);
+	assert.equal(quiet.cosAngle, heavy.cosAngle);
+	const displacement = [heavy.flowOffsetX - quiet.flowOffsetX, heavy.flowOffsetY - quiet.flowOffsetY];
+	assert.ok(Math.hypot(...displacement) > 0.001);
+	for (const point of [[0, 0], [0.5, 0.5], [1, 1], [0.2, 0.8]]) {
+		const before = mapMeshUV(quiet, point);
+		const after = mapMeshUV(heavy, point);
+		assert.ok(after.every((value, axis) => Math.abs(value - before[axis] - displacement[axis]) < 1e-12));
+	}
+});
+
+test("额外呼吸保持中心缩放，不改变原版流动偏移", () => {
+	const quiet = createMeshHarness().step(1_000, 16, { rawBass: 0.6 });
+	const breath = createMeshHarness().step(1_000, 16, { rawBass: 0.6, breath: 0.4 });
+	assert.ok(breath.breath > quiet.breath);
+	assert.equal(breath.flowOffsetX, quiet.flowOffsetX);
+	assert.equal(breath.flowOffsetY, quiet.flowOffsetY);
+	assert.deepEqual(mapMeshUV(breath, [0.5, 0.5]), mapMeshUV(quiet, [0.5, 0.5]));
+	assert.notDeepEqual(mapMeshUV(breath, [0, 0]), mapMeshUV(quiet, [0, 0]));
+});
+
+test("强度为零时保留基础流动，低频和极重拍均不改变 UV", () => {
+	const quiet = createMeshHarness().step(1_000, 16, { intensity: 0 });
+	const loud = createMeshHarness().step(1_000, 16, { intensity: 0, rawBass: 2, breath: 0.4, strongBeat: 1 });
+	assert.ok(Math.hypot(quiet.flowOffsetX, quiet.flowOffsetY) > 0.4);
+	assert.equal(loud.breath, 0);
+	for (const point of [[0, 0], [0.5, 0.5], [1, 1]]) {
+		assert.deepEqual(mapMeshUV(loud, point), mapMeshUV(quiet, point));
 	}
 });
 
@@ -2890,7 +2958,7 @@ test("弱强拍冲量用更长预滚缓慢起势，极重拍保持锐利前冲",
 	);
 });
 
-test("原作者低频输入保持原公式，旋转基准提升 50% 后与呼吸、极重拍冲量独立叠加", () => {
+test("原作者低频输入与转动保持原公式，呼吸和极重拍流动独立叠加", () => {
 	const baseHarness = createMeshHarness();
 	const base = baseHarness.step(1_000, 16, { breath: 0.4 });
 	const bassHarness = createMeshHarness();
@@ -2909,10 +2977,12 @@ test("原作者低频输入保持原公式，旋转基准提升 50% 后与呼吸
 		"原低频 volume / 10 被改变",
 	);
 	assert.ok(
-		Math.abs(bassAngle - baseAngle - 0.24) < 1e-12,
-		`原低频旋转的 1.5 倍增量为 ${bassAngle - baseAngle}`,
+		Math.abs(bassAngle - baseAngle - 0.16) < 1e-12,
+		`原低频转动增量应为 0.16，实际为 ${bassAngle - baseAngle}`,
 	);
-	assert.ok(combined.kick > 0, "极重拍冲量未叠加到原低频角度");
+	assert.ok(combined.kick > 0, "极重拍流动冲量没有生成");
+	assert.equal(combined.angle, bass.angle, "极重拍不应额外旋转整幅纹理");
+	assert.notEqual(combined.flowOffsetX, bass.flowOffsetX);
 	assert.ok(
 		combined.angleUniformError < 1e-12,
 		"三通道合成后旋转 uniform 错误",
@@ -3319,7 +3389,7 @@ test("安装后的 Mesh 补丁使用低频、呼吸、极重拍三通道和亮�
 		);
 		assert.match(
 			source,
-			/const rhythmRotationIntensity = rhythmVisualIntensity \* 1\.5/,
+			/const bassMotion = this\.volume \* rhythmVisualIntensity/,
 		);
 		assert.match(source, /"u_volume", animatedBreathVolume/);
 		assert.match(source, /"u_alpha", compensatedAlpha/);
@@ -3331,8 +3401,12 @@ test("安装后的 Mesh 补丁使用低频、呼吸、极重拍三通道和亮�
 		assert.match(source, /const breathVolume = combinedBreath <= \.16/);
 		assert.match(
 			source,
-			/const angle = uTime \* 2 \+ \(this\.volume \* 2 \+ this\.rhythmKick\) \* rhythmRotationIntensity/,
+			/const angle = uTime \* 2 \+ bassMotion \* 2/,
 		);
+		assert.match(source, /const flowAngle = angle \+ this\.rhythmKick \* rhythmVisualIntensity/);
+		assert.match(source, /vec2\(0\.5\) \+ vec2\(u_flowOffsetX, u_flowOffsetY\)/);
+		assert.match(source, /"u_flowOffsetX", flowRadius \* \(flowCos - flowSin\)/);
+		assert.match(source, /"u_flowOffsetY", flowRadius \* \(flowSin \+ flowCos\)/);
 		assert.match(
 			source,
 			/this\.volume = Number\.isFinite\(volume\) \? volume \/ 10 : 0/,
