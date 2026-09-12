@@ -16,6 +16,7 @@ import {
 	type PointerEvent as ReactPointerEvent,
 	useCallback,
 	useEffect,
+	useLayoutEffect,
 	useRef,
 	useState,
 } from "react";
@@ -38,12 +39,6 @@ import {
 export const NOW_PLAYLIST_ROW_HEIGHT = 72;
 const QUEUE_DROP_DURATION_SECONDS = 0.16;
 const QUEUE_DROP_EXIT_DURATION_SECONDS = 0.12;
-const QUEUE_SHIFT_SPRING = {
-	type: "spring" as const,
-	stiffness: 520,
-	damping: 42,
-	mass: 0.75,
-};
 
 interface QueueDragCandidate {
 	pointerId: number;
@@ -377,9 +372,13 @@ export const NowPlaylistCard: FC<NowPlaylistCardProps> = ({
 	);
 
 	const finishQueueDrag = useCallback(
-		(eventPointerId: number, cancelled: boolean) => {
+		(eventPointerId: number, cancelled: boolean, pointerClientY?: number) => {
 			const candidate = dragCandidateRef.current;
 			if (!candidate || candidate.pointerId !== eventPointerId) return;
+			// Pointer-up can carry a newer position than the last pointer-move.
+			if (!cancelled && pointerClientY !== undefined) {
+				updateDragPosition(pointerClientY);
+			}
 			dragCandidateRef.current = null;
 			releasePointerCapture(eventPointerId, candidate.captureTarget);
 
@@ -409,7 +408,17 @@ export const NowPlaylistCard: FC<NowPlaylistCardProps> = ({
 					return;
 				}
 				dropAnimationRef.current = null;
-				const currentPlaylist = playlistRef.current;
+				const currentPlaylist =
+					queueManager?.getPlayList() ?? playlistRef.current;
+				if (
+					currentPlaylist.length !== droppingDrag.itemCount ||
+					droppingDrag.itemIds.some(
+						(songId, index) => currentPlaylist[index]?.id !== songId,
+					)
+				) {
+					cancelQueueDrag();
+					return;
+				}
 				const fromIndex = currentPlaylist.findIndex(
 					(song) => song.id === droppingDrag.songId,
 				);
@@ -454,10 +463,11 @@ export const NowPlaylistCard: FC<NowPlaylistCardProps> = ({
 			prefersReducedMotion,
 			queueManager,
 			releasePointerCapture,
+			updateDragPosition,
 		],
 	);
 
-	useEffect(() => {
+	useLayoutEffect(() => {
 		playlistRef.current = playlist;
 		const pendingDrag = dragCandidateRef.current ?? activeDragRef.current;
 		if (
@@ -644,7 +654,9 @@ export const NowPlaylistCard: FC<NowPlaylistCardProps> = ({
 							updateDragPosition(drag.pointerClientY);
 						}
 					}}
-					onPointerUp={(event) => finishQueueDrag(event.pointerId, false)}
+					onPointerUp={(event) =>
+						finishQueueDrag(event.pointerId, false, event.clientY)
+					}
 					onPointerCancel={(event) => finishQueueDrag(event.pointerId, true)}
 					onLostPointerCapture={(event) =>
 						event.target === event.currentTarget &&
@@ -668,11 +680,16 @@ export const NowPlaylistCard: FC<NowPlaylistCardProps> = ({
 									)
 								: 0;
 							return (
-								<motion.div
+								<div
 									key={virtualItem.key}
 									data-index={virtualItem.index}
-									className={styles.queueRowSlot}
-									initial={false}
+									className={classNames(
+										styles.queueRowSlot,
+										activeDrag &&
+											!activeDrag.dropping &&
+											!prefersReducedMotion &&
+											styles.queueRowShifting,
+									)}
 									role="listitem"
 									aria-posinset={virtualItem.index + 1}
 									aria-setsize={playlist.length}
@@ -682,13 +699,10 @@ export const NowPlaylistCard: FC<NowPlaylistCardProps> = ({
 									onDragStart={(event) => event.preventDefault()}
 									style={{
 										height: `${NOW_PLAYLIST_ROW_HEIGHT}px`,
+										// Commit position with visibility; a deferred motion render
+										// can otherwise reveal the source at its old slot for a frame.
+										transform: `translateY(${virtualItem.start + dragShift}px)`,
 									}}
-									animate={{ y: virtualItem.start + dragShift }}
-									transition={
-										activeDrag && !activeDrag.dropping && !prefersReducedMotion
-											? QUEUE_SHIFT_SPRING
-											: { duration: 0 }
-									}
 								>
 									<div
 										className={classNames(
@@ -716,7 +730,7 @@ export const NowPlaylistCard: FC<NowPlaylistCardProps> = ({
 											onRemove={() => queueManager?.removeSong(song.id)}
 										/>
 									</div>
-								</motion.div>
+								</div>
 							);
 						})}
 						<AnimatePresence

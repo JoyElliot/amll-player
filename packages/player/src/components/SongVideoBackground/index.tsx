@@ -886,10 +886,15 @@ export const SongVideoBackground: FC = () => {
 
 	return (
 		<div className={styles.layers} data-amll-song-video-background="">
-			<div className={styles.baseLayer} style={{ opacity: baseOpacity }}>
+			<div
+				className={styles.baseLayer}
+				style={{ opacity: baseOpacity }}
+				data-amll-song-background-base=""
+			>
 				{baseRendererValue === "css-bg" ? (
 					<div
 						className={styles.cssBackground}
+						data-amll-css-background=""
 						style={{ background: effectiveCssBackground }}
 					/>
 				) : (

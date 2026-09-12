@@ -33,6 +33,7 @@ import {
 	PlaylistSnapshotBackdrop,
 	usePlaylistBackdropSnapshot,
 } from "../PlaylistSnapshotBackdrop/index.tsx";
+import { PlaylistLiveBackdrop } from "../PlaylistSnapshotBackdrop/live.tsx";
 import { RecordPanel } from "../RecordPanel/index.tsx";
 import { SongVideoBackground } from "../SongVideoBackground/index.tsx";
 import { shouldPreservePointerFocusMode } from "./focus-modality.ts";
@@ -407,6 +408,7 @@ export const AMLLWrapper: FC = () => {
 												variant="fullscreen"
 											/>
 										)}
+									<PlaylistLiveBackdrop sourceContainerRef={lyricPageRef} />
 									<NowPlaylistCard
 										id="fullscreen-now-playlist-card"
 										className={styles.fullscreenPlaylistCard}

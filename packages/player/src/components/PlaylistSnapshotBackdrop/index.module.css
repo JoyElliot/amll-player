@@ -59,6 +59,26 @@
 	);
 }
 
+.liveRoot {
+	opacity: 0;
+	transition: opacity 160ms ease;
+}
+
+.liveRoot[data-live-ready="true"] {
+	opacity: 1;
+}
+
+.liveSurface {
+	background: #000;
+}
+
+.liveLayer {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+}
+
 :global(html[data-amll-playlist-capturing]) :global([data-amll-playlist-panel]),
 :global(html[data-amll-playlist-capturing])
 	:global([data-amll-playlist-dismiss-layer]) {

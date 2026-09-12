@@ -301,7 +301,7 @@ test("拖动排序保留稳定身份、平滑反馈和安全取消", () => {
 	assert.match(queueCard, /getItemKey: getPlaylistItemKey/);
 	assert.match(
 		queueCard,
-		/<motion\.div[\s\S]*key=\{virtualItem\.key\}[\s\S]*animate=\{\{ y: virtualItem\.start \+ dragShift \}\}/,
+		/<div\s+key=\{virtualItem\.key\}[\s\S]*transform: `translateY\(\$\{virtualItem\.start \+ dragShift\}px\)`/,
 	);
 	assert.doesNotMatch(queueCard, /rowMotionGeneration/);
 	assert.doesNotMatch(queueCard, /key=\{`\$\{song\.id\}:\$\{/);
@@ -309,16 +309,16 @@ test("拖动排序保留稳定身份、平滑反馈和安全取消", () => {
 	assert.match(queueCardStyle, /\.dragSource\s*\{[\s\S]*opacity:\s*0/);
 	assert.match(
 		queueCardStyle,
-		/\.playlistSongItem\.dragOverlayItem\s*\{[\s\S]*background-color:\s*var\(--gray-4\)/,
+		/\.playlistSongItem\.dragOverlayItem\s*\{[\s\S]*background-color:\s*var\(--gray-a4\)/,
 	);
 	assert.match(
 		queueCardStyle,
-		/\.playlistSongItem\.dragOverlayItem\.current\s*\{[\s\S]*background-color:\s*var\(--accent-4\)/,
+		/\.playlistSongItem\.dragOverlayItem\.current\s*\{[\s\S]*background-color:\s*var\(--accent-a4\)/,
 	);
 	assert.match(queueCardStyle, /@media \(prefers-reduced-motion: reduce\)/);
 });
 
-test("拖动卡片保持不透明且不显示正在播放的蓝色边线", () => {
+test("拖动卡片保留背景透色且不显示正在播放的蓝色边线", () => {
 	assert.match(
 		queueCard,
 		/className=\{styles\.dragOverlay\}[\s\S]*initial=\{false\}[\s\S]*animate=\{\{ opacity: 1 \}\}/,
@@ -326,8 +326,40 @@ test("拖动卡片保持不透明且不显示正在播放的蓝色边线", () =>
 	assert.doesNotMatch(queueCard, /scale:\s*1\.015/);
 	assert.match(
 		queueCardStyle,
+		/\.playlistSongItem\.dragOverlayItem\s*\{[^}]*backdrop-filter:\s*blur\(12px\)/,
+	);
+	assert.match(
+		queueCardStyle,
 		/\.playlistSongItem\.dragOverlayItem\s*\{[\s\S]*border-left-color:\s*transparent/,
 	);
+});
+
+test("松手采用最终指针坐标并在提交前再次核对整个队列", () => {
+	assert.match(
+		queueCard,
+		/finishQueueDrag\(event\.pointerId, false, event\.clientY\)/,
+	);
+	assert.match(
+		queueCard,
+		/updateDragPosition\(pointerClientY\);[\s\S]*const droppingDrag/,
+	);
+	assert.match(
+		queueCard,
+		/const currentPlaylist =\s*queueManager\?\.getPlayList\(\) \?\? playlistRef\.current/,
+	);
+	assert.match(
+		queueCard,
+		/currentPlaylist\.length !== droppingDrag\.itemCount/,
+	);
+	assert.match(
+		queueCard,
+		/droppingDrag\.itemIds\.some\([\s\S]*currentPlaylist\[index\]\?\.id !== songId/,
+	);
+	assert.match(
+		queueCard,
+		/!activeDrag\.dropping &&\s*!prefersReducedMotion &&\s*styles\.queueRowShifting/,
+	);
+	assert.doesNotMatch(queueCard, /animate=\{\{ y: virtualItem\.start/);
 });
 
 test("拖动卡片松手落位后保留短暂淡出动画", () => {
