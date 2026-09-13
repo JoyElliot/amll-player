@@ -17,11 +17,12 @@ import {
 	type PointerEvent as ReactPointerEvent,
 	useCallback,
 	useEffect,
+	useId,
 	useLayoutEffect,
 	useRef,
 	useState,
 } from "react";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { Trans, useTranslation } from "react-i18next";
 import { queueManagerAtom } from "../../states/appAtoms.ts";
 import type { Song } from "../../utils/db-client.ts";
@@ -40,6 +41,10 @@ import {
 export const NOW_PLAYLIST_ROW_HEIGHT = 72;
 const QUEUE_DROP_DURATION_SECONDS = 0.16;
 const QUEUE_DROP_EXIT_DURATION_SECONDS = 0.12;
+const SUPPORTS_QUEUE_ANCHORS =
+	typeof CSS !== "undefined" &&
+	CSS.supports("anchor-scope", "all") &&
+	CSS.supports("top", "anchor(top)");
 
 interface QueueDragCandidate {
 	pointerId: number;
@@ -62,6 +67,9 @@ interface PlaylistSongItemProps {
 	song: Song;
 	isCurrent: boolean;
 	isDragOverlay?: boolean;
+	backdropRoot?: HTMLDivElement | null;
+	isDragSource?: boolean;
+	suppressHover?: boolean;
 	onPlay: () => void;
 	onMoveBy: (offset: number) => void;
 	onRemove: () => void;
@@ -71,11 +79,18 @@ const PlaylistSongItem: FC<PlaylistSongItemProps> = ({
 	song,
 	isCurrent,
 	isDragOverlay = false,
+	backdropRoot,
+	isDragSource = false,
+	suppressHover = false,
 	onPlay,
 	onMoveBy,
 	onRemove,
 }) => {
 	const { t } = useTranslation();
+	const anchorId = useId();
+	const anchorName = `--queue-row-${anchorId.replace(/[^a-zA-Z0-9_-]/g, "")}`;
+	const [hovered, setHovered] = useState(false);
+	const [focused, setFocused] = useState(false);
 	const cover = song.coverPath
 		? song.coverPath.startsWith("http://") ||
 			song.coverPath.startsWith("https://")
@@ -87,77 +102,102 @@ const PlaylistSongItem: FC<PlaylistSongItemProps> = ({
 		song.songArtists || t("playbar.playlist.unknownArtist", "未知艺术家");
 
 	return (
-		<div
-			className={classNames(
-				styles.playlistSongItem,
-				isCurrent && styles.current,
-				isDragOverlay && styles.dragOverlayItem,
-			)}
-			data-current={isCurrent ? "true" : "false"}
-		>
-			<button
-				type="button"
-				className={styles.songMain}
-				onClick={onPlay}
-				onKeyDown={(event) => {
-					if (!event.altKey || isDragOverlay) return;
-					if (event.key === "ArrowUp") {
-						event.preventDefault();
-						onMoveBy(-1);
-					} else if (event.key === "ArrowDown") {
-						event.preventDefault();
-						onMoveBy(1);
-					}
-				}}
-				aria-current={isCurrent ? "true" : undefined}
-				aria-keyshortcuts={
-					isDragOverlay ? undefined : "Alt+ArrowUp Alt+ArrowDown"
-				}
-				tabIndex={isDragOverlay ? -1 : undefined}
-				aria-label={t(
-					isCurrent
-						? "playbar.playlist.replaySong"
-						: "playbar.playlist.playSong",
-					isCurrent ? "重新播放 {name} - {artists}" : "播放 {name} - {artists}",
-					{ name, artists },
+		<>
+			<div
+				className={classNames(
+					styles.playlistSongItem,
+					isCurrent && styles.current,
+					isDragOverlay && styles.dragOverlayItem,
 				)}
+				data-current={isCurrent ? "true" : "false"}
+				data-row-backdrop={backdropRoot ? "" : undefined}
+				style={backdropRoot ? { anchorName } : undefined}
+				onPointerEnter={(event) => {
+					if (event.pointerType !== "touch") setHovered(true);
+				}}
+				onPointerLeave={() => setHovered(false)}
+				onFocus={() => setFocused(true)}
+				onBlur={(event) => {
+					if (!event.currentTarget.contains(event.relatedTarget))
+						setFocused(false);
+				}}
 			>
-				<Avatar size="4" fallback={<div />} src={cover} />
-				<span className={styles.musicInfo}>
-					<span className={styles.titleLine}>
-						<span className={styles.name}>{name}</span>
-						{isCurrent && (
-							<span className={styles.currentLabel}>
-								{t("playbar.playlist.current", "正在播放")}
-							</span>
-						)}
+				<button
+					type="button"
+					className={styles.songMain}
+					onClick={onPlay}
+					onKeyDown={(event) => {
+						if (!event.altKey || isDragOverlay) return;
+						if (event.key === "ArrowUp") {
+							event.preventDefault();
+							onMoveBy(-1);
+						} else if (event.key === "ArrowDown") {
+							event.preventDefault();
+							onMoveBy(1);
+						}
+					}}
+					aria-current={isCurrent ? "true" : undefined}
+					aria-keyshortcuts={
+						isDragOverlay ? undefined : "Alt+ArrowUp Alt+ArrowDown"
+					}
+					tabIndex={isDragOverlay ? -1 : undefined}
+					aria-label={t(
+						isCurrent
+							? "playbar.playlist.replaySong"
+							: "playbar.playlist.playSong",
+						isCurrent
+							? "重新播放 {name} - {artists}"
+							: "播放 {name} - {artists}",
+						{ name, artists },
+					)}
+				>
+					<Avatar size="4" fallback={<div />} src={cover} />
+					<span className={styles.musicInfo}>
+						<span className={styles.titleLine}>
+							<span className={styles.name}>{name}</span>
+						</span>
+						<span className={styles.artists}>{artists}</span>
 					</span>
-					<span className={styles.artists}>{artists}</span>
-				</span>
-			</button>
-			{!isDragOverlay && (
-				<div className={styles.itemActions} data-queue-action>
-					<button
-						type="button"
-						className={classNames(styles.itemAction, styles.removeAction)}
-						data-queue-action
-						onPointerDown={(event) => event.stopPropagation()}
-						onClick={(event) => {
-							event.stopPropagation();
-							onRemove();
-						}}
-						aria-label={t(
-							"playbar.playlist.removeSong",
-							"从播放队列移除 {name}",
-							{ name },
+				</button>
+				{!isDragOverlay && (
+					<div className={styles.itemActions} data-queue-action>
+						<button
+							type="button"
+							className={classNames(styles.itemAction, styles.removeAction)}
+							data-queue-action
+							onPointerDown={(event) => event.stopPropagation()}
+							onClick={(event) => {
+								event.stopPropagation();
+								onRemove();
+							}}
+							aria-label={t(
+								"playbar.playlist.removeSong",
+								"从播放队列移除 {name}",
+								{ name },
+							)}
+							title={t("playbar.playlist.removeShort", "移除")}
+						>
+							<TrashIcon />
+						</button>
+					</div>
+				)}
+			</div>
+			{backdropRoot &&
+				createPortal(
+					<span
+						aria-hidden="true"
+						data-queue-backdrop={song.id}
+						className={classNames(
+							styles.rowBackdrop,
+							isCurrent && styles.current,
+							!suppressHover && (hovered || focused) && styles.highlighted,
+							isDragSource && styles.dragSource,
 						)}
-						title={t("playbar.playlist.removeShort", "移除")}
-					>
-						<TrashIcon />
-					</button>
-				</div>
-			)}
-		</div>
+						style={{ positionAnchor: anchorName }}
+					/>,
+					backdropRoot,
+				)}
+		</>
 	);
 };
 
@@ -175,6 +215,8 @@ export const NowPlaylistCard: FC<NowPlaylistCardProps> = ({
 	const playlistIndex = useAtomValue(queueCurrentIndexAtom);
 	const queueManager = useAtomValue(queueManagerAtom);
 	const playlistContainerRef = useRef<HTMLDivElement>(null);
+	const [backdropRoot, setBackdropRoot] = useState<HTMLDivElement | null>(null);
+	const paintOutsideViewport = SUPPORTS_QUEUE_ANCHORS && backdropRoot !== null;
 	const dragCandidateRef = useRef<QueueDragCandidate | null>(null);
 	const activeDragRef = useRef<ActiveQueueDrag | null>(null);
 	const playlistRef = useRef(playlist);
@@ -480,6 +522,8 @@ export const NowPlaylistCard: FC<NowPlaylistCardProps> = ({
 		) {
 			cancelQueueDrag(dragCandidateRef.current?.pointerId);
 		}
+		// Empty queues unmount AnimatePresence before its exit callback can run.
+		if (playlist.length === 0) dropExitActiveRef.current = false;
 	}, [cancelQueueDrag, playlist]);
 
 	useEffect(() => {
@@ -569,6 +613,44 @@ export const NowPlaylistCard: FC<NowPlaylistCardProps> = ({
 		? playlist.find((song) => song.id === activeDrag.songId)
 		: undefined;
 
+	const dragOverlay = (
+		<AnimatePresence
+			initial={false}
+			onExitComplete={() => {
+				dropExitActiveRef.current = false;
+			}}
+		>
+			{activeDrag && draggedSong && (
+				<motion.div
+					key={`queue-drag-overlay:${activeDrag.songId}`}
+					className={styles.dragOverlay}
+					data-floating={paintOutsideViewport ? "" : undefined}
+					style={{ y: overlayY }}
+					initial={false}
+					animate={{ opacity: 1 }}
+					exit={{ opacity: 0 }}
+					transition={{
+						duration: prefersReducedMotion
+							? 0
+							: QUEUE_DROP_EXIT_DURATION_SECONDS,
+						ease: "easeOut",
+					}}
+					aria-hidden="true"
+					inert
+				>
+					<PlaylistSongItem
+						song={draggedSong}
+						isCurrent={currentSongId === draggedSong.id}
+						isDragOverlay
+						onPlay={() => {}}
+						onMoveBy={() => {}}
+						onRemove={() => {}}
+					/>
+				</motion.div>
+			)}
+		</AnimatePresence>
+	);
+
 	return (
 		<Flex
 			{...props}
@@ -636,137 +718,117 @@ export const NowPlaylistCard: FC<NowPlaylistCardProps> = ({
 					</small>
 				</div>
 			) : (
-				<ScrollViewport
-					className={classNames(
-						styles.queueViewport,
-						activeDrag && styles.dragging,
-						suppressHover && styles.suppressHover,
-					)}
-					ref={playlistContainerRef}
-					role="list"
-					aria-label={t("playbar.playlist.queueLabel", "播放队列")}
-					onPointerMove={handleQueuePointerMove}
-					onScroll={() => {
-						const drag = activeDragRef.current;
-						if (drag && !drag.dropping) {
-							updateDragPosition(drag.pointerClientY);
+				<div className={styles.queueBody}>
+					<ScrollViewport
+						className={classNames(
+							styles.queueViewport,
+							activeDrag && !activeDrag.dropping && styles.dragging,
+							suppressHover && styles.suppressHover,
+						)}
+						ref={playlistContainerRef}
+						role="list"
+						aria-label={t("playbar.playlist.queueLabel", "播放队列")}
+						onPointerMove={handleQueuePointerMove}
+						onScroll={() => {
+							const drag = activeDragRef.current;
+							if (drag && !drag.dropping) {
+								updateDragPosition(drag.pointerClientY);
+							}
+						}}
+						onPointerUp={(event) =>
+							finishQueueDrag(event.pointerId, false, event.clientY)
 						}
-					}}
-					onPointerUp={(event) =>
-						finishQueueDrag(event.pointerId, false, event.clientY)
-					}
-					onPointerCancel={(event) => finishQueueDrag(event.pointerId, true)}
-					onLostPointerCapture={(event) =>
-						event.target === event.currentTarget &&
-						finishQueueDrag(event.pointerId, true)
-					}
-				>
-					<div
-						className={styles.virtualCanvas}
-						style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+						onPointerCancel={(event) => finishQueueDrag(event.pointerId, true)}
+						onLostPointerCapture={(event) =>
+							event.target === event.currentTarget &&
+							finishQueueDrag(event.pointerId, true)
+						}
 					>
-						{rowVirtualizer.getVirtualItems().map((virtualItem) => {
-							const song = playlist[virtualItem.index];
-							if (!song) return null;
-							const isDragSource = activeDrag?.songId === song.id;
-							const dragShift = activeDrag
-								? getQueueDragShift(
-										virtualItem.index,
-										activeDrag.originIndex,
-										activeDrag.targetIndex,
-										NOW_PLAYLIST_ROW_HEIGHT,
-									)
-								: 0;
-							return (
-								<div
-									key={virtualItem.key}
-									data-index={virtualItem.index}
-									className={classNames(
-										styles.queueRowSlot,
-										activeDrag &&
-											!activeDrag.dropping &&
-											!prefersReducedMotion &&
-											styles.queueRowShifting,
-									)}
-									role="listitem"
-									aria-posinset={virtualItem.index + 1}
-									aria-setsize={playlist.length}
-									onPointerDown={(event) =>
-										beginQueueDrag(event, song.id, virtualItem.index)
-									}
-									onDragStart={(event) => event.preventDefault()}
-									style={{
-										height: `${NOW_PLAYLIST_ROW_HEIGHT}px`,
-										// Commit position with visibility; a deferred motion render
-										// can otherwise reveal the source at its old slot for a frame.
-										transform: `translateY(${virtualItem.start + dragShift}px)`,
-									}}
-								>
-									<div
-										className={classNames(
-											styles.rowMotion,
-											isDragSource && styles.dragSource,
-										)}
-										data-drag-source={isDragSource ? "true" : "false"}
-									>
-										<PlaylistSongItem
-											song={song}
-											isCurrent={playlistIndex === virtualItem.index}
-											onPlay={() => {
-												if (suppressedClickSongIdRef.current === song.id) {
-													suppressedClickSongIdRef.current = null;
-													return;
-												}
-												queueManager?.playAt(virtualItem.index);
-											}}
-											onMoveBy={(offset) =>
-												queueManager?.moveSong(
-													virtualItem.index,
-													virtualItem.index + offset,
-												)
-											}
-											onRemove={() => queueManager?.removeSong(song.id)}
-										/>
-									</div>
-								</div>
-							);
-						})}
-						<AnimatePresence
-							initial={false}
-							onExitComplete={() => {
-								dropExitActiveRef.current = false;
-							}}
+						<div
+							className={styles.virtualCanvas}
+							style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
 						>
-							{activeDrag && draggedSong && (
-								<motion.div
-									key={`queue-drag-overlay:${activeDrag.songId}`}
-									className={styles.dragOverlay}
-									style={{ y: overlayY }}
-									initial={false}
-									animate={{ opacity: 1 }}
-									exit={{ opacity: 0 }}
-									transition={{
-										duration: prefersReducedMotion
-											? 0
-											: QUEUE_DROP_EXIT_DURATION_SECONDS,
-										ease: "easeOut",
-									}}
-									aria-hidden="true"
-									inert
-								>
-									<PlaylistSongItem
-										song={draggedSong}
-										isCurrent={currentSongId === draggedSong.id}
-										isDragOverlay
-										onPlay={() => {}}
-										onMoveBy={() => {}}
-										onRemove={() => {}}
-									/>
-								</motion.div>
-							)}
-						</AnimatePresence>
-					</div>
-				</ScrollViewport>
+							{rowVirtualizer.getVirtualItems().map((virtualItem) => {
+								const song = playlist[virtualItem.index];
+								if (!song) return null;
+								const isDragSource = activeDrag?.songId === song.id;
+								const dragShift = activeDrag
+									? getQueueDragShift(
+											virtualItem.index,
+											activeDrag.originIndex,
+											activeDrag.targetIndex,
+											NOW_PLAYLIST_ROW_HEIGHT,
+										)
+									: 0;
+								return (
+									<div
+										key={virtualItem.key}
+										data-index={virtualItem.index}
+										className={classNames(
+											styles.queueRowSlot,
+											activeDrag &&
+												!activeDrag.dropping &&
+												!prefersReducedMotion &&
+												styles.queueRowShifting,
+										)}
+										role="listitem"
+										aria-posinset={virtualItem.index + 1}
+										aria-setsize={playlist.length}
+										onPointerDown={(event) =>
+											beginQueueDrag(event, song.id, virtualItem.index)
+										}
+										onDragStart={(event) => event.preventDefault()}
+										style={{
+											height: `${NOW_PLAYLIST_ROW_HEIGHT}px`,
+											// Commit position with visibility; a deferred motion render
+											// can otherwise reveal the source at its old slot for a frame.
+											transform: `translateY(${virtualItem.start + dragShift}px)`,
+										}}
+									>
+										<div
+											className={classNames(
+												styles.rowMotion,
+												isDragSource && styles.dragSource,
+											)}
+											data-drag-source={isDragSource ? "true" : "false"}
+										>
+											<PlaylistSongItem
+												song={song}
+												isCurrent={playlistIndex === virtualItem.index}
+												backdropRoot={
+													paintOutsideViewport ? backdropRoot : null
+												}
+												isDragSource={isDragSource}
+												suppressHover={suppressHover}
+												onPlay={() => {
+													if (suppressedClickSongIdRef.current === song.id) {
+														suppressedClickSongIdRef.current = null;
+														return;
+													}
+													queueManager?.playAt(virtualItem.index);
+												}}
+												onMoveBy={(offset) =>
+													queueManager?.moveSong(
+														virtualItem.index,
+														virtualItem.index + offset,
+													)
+												}
+												onRemove={() => queueManager?.removeSong(song.id)}
+											/>
+										</div>
+									</div>
+								);
+							})}
+							{!paintOutsideViewport && dragOverlay}
+						</div>
+					</ScrollViewport>
+					<div
+						ref={setBackdropRoot}
+						className={styles.rowBackdropLayer}
+						aria-hidden="true"
+					/>
+					{paintOutsideViewport && dragOverlay}
+				</div>
 			)}
 		</Flex>
 	);

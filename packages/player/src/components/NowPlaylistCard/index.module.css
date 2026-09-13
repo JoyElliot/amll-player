@@ -99,13 +99,57 @@
 	outline-offset: -2px;
 }
 
+.queueBody {
+	position: relative;
+	display: flex;
+	flex: 0 1 auto;
+	flex-direction: column;
+	width: 100%;
+	min-height: 0;
+	overflow: hidden;
+	isolation: isolate;
+	anchor-scope: all;
+}
+
 .queueViewport {
 	position: relative;
+	z-index: 1;
 	flex: 0 1 auto;
 	width: 100%;
 	height: auto;
 	min-height: 0;
 	overscroll-behavior: contain;
+}
+
+/* One full-width surface per visible row keeps hover fades continuous under
+   the native scrollbar. Its persistent anchor survives pointer leave. */
+.rowBackdropLayer {
+	display: contents;
+}
+
+.rowBackdrop {
+	position: absolute;
+	z-index: 0;
+	inset-inline: 0;
+	top: anchor(top);
+	height: anchor-size(height);
+	pointer-events: none;
+	position-visibility: anchors-visible;
+	background-color: transparent;
+	transition: background-color 120ms ease;
+}
+
+.rowBackdrop.highlighted {
+	background-color: var(--gray-a3);
+}
+
+.rowBackdrop.current {
+	background-color: var(--accent-4);
+}
+
+.queueBody .queueViewport .playlistSongItem[data-row-backdrop] {
+	background-color: transparent;
+	transition-property: border-color;
 }
 
 .queueViewport.dragging {
@@ -114,6 +158,7 @@
 }
 
 .virtualCanvas {
+	anchor-name: --queue-canvas;
 	position: relative;
 	min-width: 100%;
 	width: calc(100% + var(--amll-scrollbar-space));
@@ -152,6 +197,11 @@
 	will-change: transform;
 }
 
+.dragOverlay[data-floating] {
+	position-anchor: --queue-canvas;
+	top: anchor(top);
+}
+
 .playlistSongItem {
 	display: flex;
 	align-items: center;
@@ -162,14 +212,15 @@
 	padding-inline-start: var(--space-3);
 	padding-inline-end: calc(var(--amll-scrollbar-space) + var(--space-1));
 	border-left: 3px solid transparent;
-	cursor: grab;
+	cursor: pointer;
 	touch-action: pan-y;
 	transition:
 		background-color 120ms ease,
 		border-color 120ms ease;
 }
 
-.dragging .playlistSongItem {
+.dragging .playlistSongItem,
+.dragging .itemAction {
 	cursor: grabbing;
 }
 
@@ -258,16 +309,6 @@
 	font-size: var(--font-size-1);
 }
 
-.currentLabel {
-	flex: none;
-	border-radius: var(--radius-2);
-	padding: 2px 5px;
-	background: var(--accent-a4);
-	color: var(--accent-11);
-	font-size: 10px;
-	line-height: 1;
-}
-
 .itemActions {
 	flex: none;
 	gap: 2px;
@@ -317,6 +358,7 @@
 
 @media (prefers-reduced-motion: reduce) {
 	.playlistSongItem,
+	.rowBackdrop,
 	.itemActions,
 	.queueRowShifting,
 	.rowMotion {

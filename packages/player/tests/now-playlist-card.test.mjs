@@ -84,7 +84,6 @@ test("队列行单击即可播放且当前歌曲有明确状态", () => {
 	assert.match(queueCard, /role="listitem"/);
 	assert.match(queueCard, /aria-posinset=\{virtualItem\.index \+ 1\}/);
 	assert.match(queueCard, /aria-setsize=\{playlist\.length\}/);
-	assert.match(queueCard, /playbar\.playlist\.current/);
 	assert.match(queueCardStyle, /\.playlistSongItem\.current\s*\{/);
 	assert.match(queueCardStyle, /border-left-color:\s*var\(--accent-9\)/);
 });
