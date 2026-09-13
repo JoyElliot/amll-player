@@ -1,8 +1,9 @@
 import { Cross2Icon, TrashIcon } from "@radix-ui/react-icons";
-import { Avatar, Flex, type FlexProps, ScrollArea } from "@radix-ui/themes";
+import { Avatar, Flex, type FlexProps } from "@radix-ui/themes";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import classNames from "classnames";
+import { ScrollViewport } from "../ScrollViewport/index.tsx";
 import {
 	AnimatePresence,
 	animate,
@@ -635,15 +636,12 @@ export const NowPlaylistCard: FC<NowPlaylistCardProps> = ({
 					</small>
 				</div>
 			) : (
-				<ScrollArea
+				<ScrollViewport
 					className={classNames(
 						styles.queueViewport,
 						activeDrag && styles.dragging,
 						suppressHover && styles.suppressHover,
 					)}
-					type="scroll"
-					scrollbars="vertical"
-					size="1"
 					ref={playlistContainerRef}
 					role="list"
 					aria-label={t("playbar.playlist.queueLabel", "播放队列")}
@@ -768,7 +766,7 @@ export const NowPlaylistCard: FC<NowPlaylistCardProps> = ({
 							)}
 						</AnimatePresence>
 					</div>
-				</ScrollArea>
+				</ScrollViewport>
 			)}
 		</Flex>
 	);

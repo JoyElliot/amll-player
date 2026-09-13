@@ -17,7 +17,6 @@ import {
 	Grid,
 	Heading,
 	IconButton,
-	ScrollArea,
 	Separator,
 	Spinner,
 	Text,
@@ -51,6 +50,7 @@ import { MusicDropVisual } from "../../components/MusicDropVisual/index.tsx";
 import { PageContainer } from "../../components/PageContainer/index.tsx";
 import { PlaylistCover } from "../../components/PlaylistCover/index.tsx";
 import { PlaylistSongCard } from "../../components/PlaylistSongCard/index.tsx";
+import { ScrollViewport } from "../../components/ScrollViewport/index.tsx";
 import { queueManagerAtom } from "../../states/appAtoms.ts";
 import {
 	db,
@@ -726,12 +726,10 @@ export const Component: FC = () => {
 							"支持音乐文件和文件夹",
 						)}
 					/>
-					<Box
-						flexGrow="1"
-						overflowY="auto"
-						minHeight="0"
-						pb="4"
+					<ScrollViewport
+						className={styles.songViewport}
 						ref={playlistViewRef}
+						bleed
 					>
 						{playlist?.songIds && (
 							<ViewportList
@@ -749,7 +747,7 @@ export const Component: FC = () => {
 								)}
 							</ViewportList>
 						)}
-					</Box>
+					</ScrollViewport>
 				</div>
 			</Flex>
 
@@ -776,11 +774,7 @@ export const Component: FC = () => {
 						)}
 					</Dialog.Description>
 
-					<ScrollArea
-						type="always"
-						scrollbars="vertical"
-						style={{ maxHeight: 300 }}
-					>
+					<ScrollViewport style={{ maxHeight: 300 }}>
 						<Flex direction="column" gap="3" pr="3">
 							{failedImports.map((item, index) => (
 								<Box
@@ -811,7 +805,7 @@ export const Component: FC = () => {
 								</Box>
 							))}
 						</Flex>
-					</ScrollArea>
+					</ScrollViewport>
 
 					<Flex gap="3" mt="4" justify="end">
 						<Dialog.Close>

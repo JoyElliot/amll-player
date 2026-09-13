@@ -105,21 +105,7 @@
 	width: 100%;
 	height: auto;
 	min-height: 0;
-	overflow: hidden;
-}
-
-.queueViewport :global(.rt-ScrollAreaViewport) {
 	overscroll-behavior: contain;
-}
-
-.queueViewport :global(.rt-ScrollAreaScrollbar) {
-	z-index: 4;
-	margin: var(--space-1) 2px;
-	background-color: transparent;
-}
-
-.queueViewport :global(.rt-ScrollAreaThumb) {
-	background-color: var(--gray-a8);
 }
 
 .queueViewport.dragging {
@@ -130,7 +116,7 @@
 .virtualCanvas {
 	position: relative;
 	min-width: 100%;
-	width: 100%;
+	width: calc(100% + var(--amll-scrollbar-space));
 }
 
 .queueRowSlot {
@@ -174,7 +160,7 @@
 	height: 100%;
 	padding-block: 4px;
 	padding-inline-start: var(--space-3);
-	padding-inline-end: calc(var(--space-3) + var(--space-1));
+	padding-inline-end: calc(var(--amll-scrollbar-space) + var(--space-1));
 	border-left: 3px solid transparent;
 	cursor: grab;
 	touch-action: pan-y;

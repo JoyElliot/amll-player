@@ -457,13 +457,6 @@ test("播放队列按歌曲数量延展并只在接近播放栏时滚动", () =>
 		/max-height:\s*calc\([\s\S]*--system-titlebar-height,\s*0px/,
 	);
 	assert.match(queueCardStyle, /\.queueViewport\s*\{[\s\S]*flex:\s*0 1 auto/);
-	assert.match(
-		queueCard,
-		/<ScrollArea[\s\S]*type="scroll"[\s\S]*scrollbars="vertical"[\s\S]*size="1"/,
-	);
-	assert.match(queueCardStyle, /\.rt-ScrollAreaScrollbar/);
-	assert.match(queueCardStyle, /\.rt-ScrollAreaThumb/);
-	assert.doesNotMatch(queueCardStyle, /scrollbar-gutter:\s*stable/);
 	assert.doesNotMatch(queueCardStyle, /height:\s*min\(500px,\s*50vh\)/);
 });
 
