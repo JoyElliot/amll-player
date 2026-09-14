@@ -1,395 +1,198 @@
-name: 构建 AMLL Player Tauri 多端版本
+name: 构建单个候选 视觉测试版
+run-name: "候选 07 · 优化间奏三点呼吸与退场衔接"
+
 on:
   push:
-    branches:
-      - main
-      - dev
-    paths-ignore:
-      - "**/*.md"
-      - "packages/docs/**"
+    branches: [codex/visual-candidate-07]
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: visual-test-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  VISUAL_TEST_CANDIDATE: "07"
+  VISUAL_TEST_SOURCE_SHA: "ccd32b6d0e8a7a7cf0f6f66cb5304c437fbc8aae"
+
 jobs:
-  clean-pre-release:
-    name: 删除预发布版本的构建产物
-    runs-on: ubuntu-latest
+  windows:
+    name: "候选 07 Windows x64"
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
     steps:
-      - name: 删除预发布版本的构建产物
-        uses: mknejp/delete-release-assets@v1
-        with:
-          token: ${{ github.token }}
-          assets: |
-            *.*
-          tag: ${{ github.ref_name }}-player-dev
-          fail-if-no-assets: false
-          fail-if-no-release: false
-
-  build-tauri-desktop:
-    name: 构建 Tauri 桌面版本
-    needs: clean-pre-release
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: ubuntu-latest
-            args: ""
-            name: linux
-            arch: x86_64
-            artifact_name_suffix: linux-x64
-            package_extension: tar.gz
-            os_runner: ubuntu-latest
-          - platform: windows-latest
-            args: ""
-            name: windows
-            arch: x86_64
-            artifact_name_suffix: windows-x64
-            package_extension: zip
-            os_runner: windows-latest
-          - platform: windows-latest
-            args: "--target aarch64-pc-windows-msvc"
-            name: windows
-            arch: aarch64
-            artifact_name_suffix: windows-arm64
-            package_extension: zip
-            os_runner: windows-latest
-          - platform: macos-latest # arm64 二进制包
-            args: "--target aarch64-apple-darwin"
-            name: macOS
-            arch: aarch64
-            artifact_name_suffix: macos-arm64
-            package_extension: tar.gz
-            os_runner: macos-14
-          - platform: macos-latest # x86 二进制包
-            args: "--target x86_64-apple-darwin"
-            name: macOS
-            arch: x86_64
-            artifact_name_suffix: macos-x64
-            package_extension: tar.gz
-            os_runner: macos-latest
-
-    runs-on: ${{ matrix.os_runner }}
-
-
-    steps:
-      - uses: actions/checkout@v4
-        name: 克隆仓库
-        with:
-          fetch-depth: 0 # 为了正确生成开发版本号码
-
-      - name: 安装 PNPM
-        uses: pnpm/action-setup@v4
-
-      - name: 安装 Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-          cache: pnpm
-
-      - name: 安装 Rust 工具链
-        uses: dtolnay/rust-toolchain@v1
-        with:
-          toolchain: stable
-          targets: |
-            wasm32-unknown-unknown,${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || (matrix.platform == 'windows-latest' && matrix.arch == 'aarch64') && 'aarch64-pc-windows-msvc' || '' }}
-
-      - name: 安装系统依赖 (仅 Linux)
-        if: matrix.platform == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libasound2-dev \
-            libappindicator3-dev \
-            libwebkit2gtk-4.1-dev \
-            librsvg2-dev \
-            patchelf \
-            curl \
-            unzip \
-            tar
-            
-      - name: 配置 Rust 缓存
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            . -> target
-          key: ${{ matrix.artifact_name_suffix }}
-
-      # macOS 自带的 Xcode LLVM 不支持 WASM 目标
-      - name: "macOS: 安装 LLVM 和 Clang"
-        uses: KyleMayes/install-llvm-action@v2
-        if: matrix.platform == 'macos-latest'
-        with:
-          version: "20"
-
-      - name: "macOS: 设置环境变量"
-        if: matrix.platform == 'macos-latest'
-        run: |
-          SDK_PATH=$(xcrun --show-sdk-path)
-          echo "SDK Path: $SDK_PATH"
-          echo "BINDGEN_EXTRA_CLANG_ARGS=-isysroot $SDK_PATH" >> $GITHUB_ENV
-        shell: bash
-
-      - name: 安装 wasm-pack
-        uses: jetli/wasm-pack-action@v0.4.0
-        with:
-          version: "v0.14.0"
-
-      - name: 安装 pnpm 依赖
-        run: |
-          pnpm i --frozen-lockfile --ignore-scripts
-
-      - name: 生成开发构建版本号
-        shell: bash
-        run: |
-          if [[ "${{ runner.os }}" == "macOS" ]]; then
-            export PATH="/usr/bin:$PATH"
-          fi
-          node ./packages/player/scripts/gen-dev-version.mjs
-
-      - name: 构建 AMLL Player 程序并发布自动构建
-        uses: tauri-apps/tauri-action@v0
-        with:
-          projectPath: packages/player
-          tagName: ${{ github.ref_name }}-player-dev
-          includeUpdaterJson: true
-          releaseName: AMLL Player ${{ github.ref_name }} branch development build
-          releaseBody: |
-            Latest ${{ github.ref_name }} branch development build.
-            最新 ${{ github.ref_name }} 分支开发调试构建。
-            Development version may be unstable and may not work properly, please only for test purpose.
-            开发版本可能不稳定且可能无法正常工作，请仅用于测试目的。
-
-            Latest commits (最新提交): ${{ github.event.head_commit.message }}
-          prerelease: true
-          args: ${{ matrix.args }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-
-      - name: 上传产物到 Action Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: AMLL Player ${{matrix.name}}-${{matrix.arch}}
-          path: |
-            target/**/release/bundle/**/*
-            target/**/release/amll-player.exe
-            target/**/release/amll-player
-
-  build-tauri-android:
-    name: 构建 Tauri 安卓版本
-    needs: clean-pre-release
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-        name: 克隆仓库
-        with:
-          fetch-depth: 0 # 为了正确生成开发版本号码
-
-      - name: 安装 PNPM
-        uses: pnpm/action-setup@v4
-
-      - name: 安装 Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: lts/*
-          cache: pnpm
-
-      - name: 安装 Rust 工具链
-        uses: dtolnay/rust-toolchain@v1
-        with:
-          toolchain: stable
-          targets: x86_64-unknown-linux-gnu,x86_64-linux-android,aarch64-linux-android
-
-      - name: 安装 wasm-pack
-        uses: jetli/wasm-pack-action@v0.4.0
-        with:
-          version: "v0.13.1"
-
-      - name: 安装 wasm32 目标
-        run: rustup target add wasm32-unknown-unknown
-
-      - name: 配置 Rust 缓存
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            . -> target
-            packages/player/src-tauri -> target
-          key: android
-
-      - name: 设置编译环境
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential gcc-multilib g++-multilib
-
-      - name: 设置 Android SDK/NDK
-        uses: android-actions/setup-android@v3
-
-      - name: 安装 NDK
-        run: sdkmanager --install "ndk;27.2.12479018"
-        env:
-          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-          
-      - name: 安装 pnpm 依赖
-        run: |
-          pnpm i --frozen-lockfile --ignore-scripts
-
-      - name: 生成开发构建版本号
-        run: |
-          node ./packages/player/scripts/gen-dev-version.mjs
-
-      - name: 构建 AMLL Player 安卓版本
-        env:
-          CARGO_NDK_ANDROID_PLATFORM: 26
-        run: |
-          export NDK_HOME=$ANDROID_NDK_HOME
-          export JAVA_HOME=$JAVA_HOME_17_X64
-          pnpm -F player tauri android build --target aarch64 --target x86_64 --split-per-abi
-
-      - name: 整理并重命名 Android 构建包
-        run: |
-          VERSION=$(node -p "require('./packages/player/src-tauri/tauri.conf.json').version")
-          echo "Version is $VERSION"
-          mkdir -p build-dist
-          find packages/player/src-tauri/gen/android/app/build/outputs -name "*.apk" | while read -r apk; do
-            filename=$(basename "$apk")
-            if [[ "$filename" == *"arm64-v8a"* ]]; then
-              new_name="AMLL.Player-${VERSION}.arm64-release-unsigned.apk"
-            elif [[ "$filename" == *"x86_64"* ]]; then
-              new_name="AMLL.Player-${VERSION}.x86_64-release-unsigned.apk"
-            elif [[ "$filename" == *"universal"* ]]; then
-              new_name="AMLL.Player-${VERSION}.universal-release-unsigned.apk"
-            else
-              new_name="AMLL.Player-${VERSION}.${filename}"
-            fi
-            cp "$apk" "build-dist/$new_name"
-            echo "Copied $apk to build-dist/$new_name"
-          done
-          find packages/player/src-tauri/gen/android/app/build/outputs -name "*.aab" | while read -r aab; do
-            cp "$aab" "build-dist/AMLL.Player-${VERSION}-release.aab"
-            echo "Copied $aab to build-dist/AMLL.Player-${VERSION}-release.aab"
-          done
-
-      - name: 上传产物到 Action Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: AMLL Player Android Universal
-          path: build-dist/*
-
-      - name: 发布 Android 安装包至 GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}-player-dev
-          prerelease: true
-          files: build-dist/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  build-tauri-ios:
-    name: 构建 Tauri iOS 版本
-    needs: clean-pre-release
-    runs-on: macos-14
-
-    steps:
-      - uses: actions/checkout@v4
-        name: 克隆仓库
+      - name: 检出测试分支
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
-      - name: 选择 Xcode 16 版本
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: "16"
+      - name: 核对 候选源代码
+        run: |
+          $source = $env:VISUAL_TEST_SOURCE_SHA
+          $parent = (git rev-parse 'HEAD^').Trim()
+          if ($LASTEXITCODE -ne 0 -or $parent -ne $source) {
+            throw '测试分支的父提交与指定候选 不一致'
+          }
+          $changedPaths = @(git diff --name-only $source HEAD)
+          if ($LASTEXITCODE -ne 0) { throw '无法比较 候选源代码' }
+          $unexpected = @($changedPaths | Where-Object {
+            $_ -notin @('.github/workflows/build-player.yaml', 'VISUAL-TEST.md')
+          })
+          if ($unexpected.Count -gt 0) {
+            throw "测试分支混入了产品代码改动：$($unexpected -join ', ')"
+          }
+          "候选 $env:VISUAL_TEST_CANDIDATE 源提交：$source" >> $env:GITHUB_STEP_SUMMARY
 
-      - name: 安装 PNPM
+      - name: 安装 pnpm
         uses: pnpm/action-setup@v4
 
       - name: 安装 Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: lts/*
+          node-version: "24"
           cache: pnpm
 
-      - name: 安装 Rust 工具链与 iOS 构建目标
-        uses: dtolnay/rust-toolchain@v1
-        with:
-          toolchain: stable
-          targets: "aarch64-apple-ios"
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: 配置 Rust 缓存
+      - name: 缓存 Rust 构建
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: |
-            . -> target
-            packages/player/src-tauri -> target
-          key: ios-aarch64-only
-    
-      - name: 安装 pnpm 依赖
-        run: |
-          pnpm i --frozen-lockfile --ignore-scripts
+          workspaces: . -> target
+          key: visual-test-windows-x64
 
-      - name: 生成开发构建版本号
+      - name: 配置 libclang
         run: |
-          node ./packages/player/scripts/gen-dev-version.mjs
+          $clangPath = Join-Path $env:ProgramFiles 'LLVM/bin'
+          if (-not (Test-Path (Join-Path $clangPath 'libclang.dll'))) {
+            throw "找不到 libclang.dll：$clangPath"
+          }
+          "LIBCLANG_PATH=$clangPath" >> $env:GITHUB_ENV
+
+      - name: 安装前端依赖
+        run: |
+          pnpm install --frozen-lockfile --ignore-scripts
+          if ($LASTEXITCODE -ne 0) { throw '前端依赖安装失败' }
+
+      - name: 检查前端类型
+        run: |
+          pnpm -F player exec tsgo --noEmit
+          if ($LASTEXITCODE -ne 0) { throw '前端类型检查失败' }
+
+      - name: 检测此候选 的前端专项测试
+        id: tests
+        run: |
+          $testFiles = @(Get-ChildItem packages/player/tests -Filter '*.test.mjs' -File -ErrorAction SilentlyContinue)
+          "frontend=$($testFiles.Count -gt 0)".ToLowerInvariant() >> $env:GITHUB_OUTPUT
+          if ($testFiles.Count -eq 0) {
+            '该候选 没有前端专项测试文件；前端类型检查和生产构建照常执行。' >> $env:GITHUB_STEP_SUMMARY
+          }
+
+      - name: 运行此候选 的前端专项测试
+        if: steps.tests.outputs.frontend == 'true'
+        run: |
+          $testFiles = @(Get-ChildItem packages/player/tests -Filter '*.test.mjs' -File | ForEach-Object FullName)
+          if ($testFiles.Count -eq 0) { throw '前端测试文件意外缺失' }
+          node --test @testFiles
+          if ($LASTEXITCODE -ne 0) { throw '前端专项测试失败' }
+
+      - name: 生成独立测试版配置
+        id: config
+        run: |
+          $baseConfig = Get-Content packages/player/src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          $version = "$($baseConfig.version)-visual.candidate$env:VISUAL_TEST_CANDIDATE.$env:GITHUB_RUN_NUMBER"
+          $configPath = Join-Path $env:RUNNER_TEMP 'tauri.visual-test.conf.json'
+          @{
+            productName = "AMLL Player Candidate $env:VISUAL_TEST_CANDIDATE"
+            identifier = "net.stevexmh.amllplayer.visualtest.candidate$env:VISUAL_TEST_CANDIDATE"
+            version = $version
+            bundle = @{ active = $false; createUpdaterArtifacts = $false }
+            plugins = @{ updater = @{ endpoints = @() } }
+          } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $configPath -Encoding utf8NoBOM
+          "path=$configPath" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: 构建 Windows 测试版
         env:
-          AMLL_IOS_BUILD: "true"
-
-      - name: 动态注入 iOS 构建版本号至 Info.plist
-        shell: bash
+          VISUAL_TEST_CONFIG: ${{ steps.config.outputs.path }}
         run: |
-          COMMIT_COUNT=$(git rev-list --count HEAD)
-          PLIST_PATH="packages/player/src-tauri/gen/apple/amll-player_iOS/Info.plist"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $COMMIT_COUNT" "$PLIST_PATH"
-          echo "Successfully synced CFBundleVersion to $COMMIT_COUNT in Info.plist"
+          pnpm -F player tauri build --ci --no-bundle --no-sign --config "$env:VISUAL_TEST_CONFIG"
+          if ($LASTEXITCODE -ne 0) { throw 'Tauri 生产构建失败' }
+          if (-not (Test-Path target/release/amll-player.exe)) {
+            throw '构建完成但未找到 amll-player.exe'
+          }
 
-      - name: 构建 iOS 应用并生成无签名版 .ipa
-        shell: bash
+      - name: 整理下载包与构建信息
+        id: package
+        env:
+          VISUAL_TEST_VERSION: ${{ steps.config.outputs.version }}
         run: |
-          # 1. 尝试使用 Tauri CLI 编译 iOS 应用
-          # 即使无签名构建在导出归档时可能因为没有证书报错（如 code 70），
-          # 只要底层的编译产物 .app 成功生成，就可以继续打包为 ipa。
-          pnpm -F player tauri ios build || echo "Tauri CLI exited with warning/error. Checking if .app was generated..."
+          $artifactDir = Join-Path $env:RUNNER_TEMP "amll-player-candidate$env:VISUAL_TEST_CANDIDATE"
+          New-Item -ItemType Directory -Path $artifactDir -Force | Out-Null
+          Copy-Item -LiteralPath target/release/amll-player.exe -Destination $artifactDir
+          Get-ChildItem target/release -Filter '*.dll' -File |
+            Where-Object Name -NE 'amll_player_lib.dll' |
+            Copy-Item -Destination $artifactDir
 
-          # 2. 动态定位编译生成的 .app 目录
-          APP_PATH=$(find packages/player/src-tauri/gen/apple -name "*.app" 2>/dev/null | head -1)
-          if [ -z "$APP_PATH" ]; then
-            APP_PATH=$(find $HOME/Library/Developer/Xcode/DerivedData $HOME/Library/Developer/Xcode/Archives -name "*.app" 2>/dev/null | head -1)
-          fi
+          $commit = (git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $commit -ne $env:GITHUB_SHA) {
+            throw '产物提交与 Actions 触发提交不一致'
+          }
+          $runUrl = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+          @{
+            version = $env:VISUAL_TEST_VERSION
+            branch = $env:GITHUB_REF_NAME
+            commit = $commit
+            sourceCommit = $env:VISUAL_TEST_SOURCE_SHA
+            candidate = $env:VISUAL_TEST_CANDIDATE
+            title = '优化间奏三点呼吸与退场衔接'
+            prerequisitePullRequests = @(75)
+            prerequisiteCandidates = @()
+            applicationIdentifier = "net.stevexmh.amllplayer.visualtest.candidate$env:VISUAL_TEST_CANDIDATE"
+            target = 'x86_64-pc-windows-msvc'
+            updaterSigning = $false
+            runUrl = $runUrl
+          } | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $artifactDir 'build-info.json') -Encoding utf8NoBOM
 
-          # 3. 校验并打包为无签名 .ipa
-          if [ -n "$APP_PATH" ] && [ -d "$APP_PATH" ]; then
-            echo "Successfully found compiled .app at: $APP_PATH"
-            VERSION=$(node -p "require('./packages/player/src-tauri/tauri.conf.json').version")
-            COMMIT_COUNT=$(git rev-list --count HEAD)
-            IPA_NAME="AMLL.Player-${VERSION}+${COMMIT_COUNT}.arm64-release-unsigned.ipa"
-            
-            mkdir -p build/Payload
-            cp -r "$APP_PATH" build/Payload/
-            cd build && zip -r "../$IPA_NAME" Payload
-            echo "IPA successfully created: $IPA_NAME"
-          else
-            echo "ERROR: Compiled .app not found. Build failed."
-            exit 1
-          fi
+          @(
+            "AMLL Player 候选 $env:VISUAL_TEST_CANDIDATE 视觉测试版（Windows x64）"
+            ''
+            '解压整个下载包，然后运行 amll-player.exe。需要 Windows WebView2 Runtime。'
+            "本包包含候选 $env:VISUAL_TEST_CANDIDATE 及其前置改动：PR #75。源提交：$env:VISUAL_TEST_SOURCE_SHA。"
+            '每个候选 使用独立的测试数据目录，首次打开需要重新导入测试歌曲。'
+            '测试版使用未签名 EXE，不提供安装包和自动更新。'
+            '版本和源代码提交见 build-info.json，文件校验值见 SHA256SUMS.txt。'
+          ) | Set-Content (Join-Path $artifactDir '使用说明.txt') -Encoding utf8NoBOM
 
-      - name: 上传无签名 ipa 包至 GitHub Action Artifacts
+          Get-ChildItem -LiteralPath $artifactDir -File |
+            Where-Object Name -NE 'SHA256SUMS.txt' | Sort-Object Name | ForEach-Object {
+              $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              "$hash  $($_.Name)"
+            } | Set-Content (Join-Path $artifactDir 'SHA256SUMS.txt') -Encoding utf8NoBOM
+
+          "path=$artifactDir" >> $env:GITHUB_OUTPUT
+          @(
+            "### 候选 $env:VISUAL_TEST_CANDIDATE Windows x64 视觉测试版"
+            ''
+            "版本：$env:VISUAL_TEST_VERSION"
+            "构建提交：$commit"
+            "候选源提交：$env:VISUAL_TEST_SOURCE_SHA"
+            ''
+            '下载下方 Artifact，解压后运行 amll-player.exe。首次使用需导入测试歌曲。'
+          ) >> $env:GITHUB_STEP_SUMMARY
+
+      - name: 上传 Windows 测试包
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
         uses: actions/upload-artifact@v4
         with:
-          name: AMLL Player iOS Unsigned IPA
-          path: "*.ipa"
-
-      - name: 发布 iOS 安装包至 GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}-player-dev
-          prerelease: true
-          files: "*.ipa"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: AMLL-Player-Candidate-07-windows-x64-${{ github.run_number }}-${{ github.run_attempt }}
+          path: ${{ steps.package.outputs.path }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 6
