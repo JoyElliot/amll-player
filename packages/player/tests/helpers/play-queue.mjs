@@ -33,6 +33,7 @@ const { clearMocks, mockIPC } = await import("@tauri-apps/api/mocks");
 const { PlayQueueManager, persistedQueueStateAtom } = await import(
 	"../../src/utils/play-queue-manager.ts"
 );
+export { persistedQueueStateAtom };
 
 export function song(id) {
 	return {
@@ -47,7 +48,7 @@ export function song(id) {
 	};
 }
 
-export function setup(context, { songs = [], saved, database } = {}) {
+export function setup(context, { songs = [], saved, database, audio } = {}) {
 	const calls = [];
 	mockIPC((command, payload) => {
 		if (command === "plugin:event|listen") return 1;
@@ -55,12 +56,14 @@ export function setup(context, { songs = [], saved, database } = {}) {
 		if (command !== "local_player_send_msg")
 			throw new Error(`Unexpected IPC: ${command}`);
 		calls.push(payload.msg.data);
+		return audio?.(payload.msg.data);
 	});
 	const store = createStore();
 	if (saved) store.set(persistedQueueStateAtom, saved);
 	const manager = new PlayQueueManager(store);
-	context.after(() => {
+	context.after(async () => {
 		manager.dispose();
+		await flush();
 		clearMocks();
 	});
 	return {

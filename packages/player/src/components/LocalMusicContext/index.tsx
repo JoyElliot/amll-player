@@ -389,25 +389,25 @@ export const LocalMusicContext: FC = () => {
 		store.set(queueManagerAtom, queueManager);
 
 		// 恢复上次的队列信息
-		queueManager.restore().then(({ restored, position }) => {
-			if (restored) {
-				const currentSong = queueManager.getCurrentSong();
-				if (currentSong) {
-					// 恢复播放进度
-					queueManager.playAt(queueManager.getCurrentIndex());
-					emitAudioThread("pauseAudio");
-
-					if (position > 0) {
-						lastSyncRef.current = {
-							position,
-							timestamp: performance.now(),
-						};
-						store.set(musicPlayingPositionAtom, (position * 1000) | 0);
-						emitAudioThread("seekAudio", { position });
-					}
-				}
-			}
-		});
+		queueManager
+			.restore()
+			.then(async (result) => {
+				if (!result.restored) return;
+				const revision = await queueManager.restoreCurrentPaused(
+					result.revision,
+					result.position,
+				);
+				if (revision === null || !queueManager.isCurrentRevision(revision))
+					return;
+				lastSyncRef.current = {
+					position: result.position,
+					timestamp: performance.now(),
+				};
+				store.set(musicPlayingPositionAtom, (result.position * 1000) | 0);
+			})
+			.catch((error) =>
+				console.error("[LocalMusicContext] 恢复播放进度失败:", error),
+			);
 
 		const onBeforeUnload = () => {
 			queueManager.dispose();
@@ -424,6 +424,7 @@ export const LocalMusicContext: FC = () => {
 		store.set(
 			onPlayOrResumeAtom,
 			toEmit(() => {
+				queueManager.cancelRestore();
 				emitAudioThread("resumeOrPauseAudio");
 			}),
 		);
@@ -463,6 +464,7 @@ export const LocalMusicContext: FC = () => {
 			onSeekPositionAtom,
 			toEmit((time: number) => {
 				const targetPos = time / 1000;
+				queueManager.cancelRestore(targetPos);
 				lastSyncRef.current = {
 					position: targetPos,
 					timestamp: performance.now(),
@@ -479,6 +481,7 @@ export const LocalMusicContext: FC = () => {
 			toEmit((evt) => {
 				const targetTimeMs = evt.line.getLine().startTime;
 				const targetPos = targetTimeMs / 1000;
+				queueManager.cancelRestore(targetPos);
 
 				lastSyncRef.current = {
 					position: targetPos,
@@ -531,6 +534,7 @@ export const LocalMusicContext: FC = () => {
 
 				case "loadAudio": {
 					const data = evtData.data;
+					const position = queueManager.takeRestorePosition(data.musicId) ?? 0;
 
 					if (data.quality) {
 						store.set(musicQualityAtom, processAudioQuality(data.quality));
@@ -540,10 +544,10 @@ export const LocalMusicContext: FC = () => {
 					}
 
 					lastSyncRef.current = {
-						position: 0,
+						position,
 						timestamp: performance.now(),
 					};
-					store.set(musicPlayingPositionAtom, 0);
+					store.set(musicPlayingPositionAtom, (position * 1000) | 0);
 
 					const currentMusicId = store.get(musicIdAtom);
 					const newMusicId = data.musicId || "";

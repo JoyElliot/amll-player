@@ -90,6 +90,7 @@ async fn main() -> anyhow::Result<()> {
                 song_id: None,
             },
             playback_id: None,
+            start_paused: false,
         })
         .await?;
 

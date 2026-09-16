@@ -55,6 +55,8 @@ pub enum AudioThreadMessage {
         song: SongData,
         #[serde(default)]
         playback_id: Option<String>,
+        #[serde(default)]
+        start_paused: bool,
     },
     #[serde(rename_all = "camelCase")]
     SetVolume { volume: f64 },
@@ -164,6 +166,23 @@ mod protocol_tests {
                 assert_eq!(playback_id.as_deref(), Some("request"))
             }
             _ => panic!("expected play request"),
+        }
+    }
+
+    #[test]
+    fn play_request_can_start_paused_without_changing_the_legacy_default() {
+        for (value, expected) in [(None, false), (Some(true), true), (Some(false), false)] {
+            let mut payload = json!({ "type": "playAudio", "song": { "filePath": "test.flac" } });
+            if let Some(value) = value {
+                payload["startPaused"] = json!(value);
+            }
+            let message: AudioThreadMessage = serde_json::from_value(payload).unwrap();
+            match message {
+                AudioThreadMessage::PlayAudio { start_paused, .. } => {
+                    assert_eq!(start_paused, expected)
+                }
+                _ => panic!("expected play request"),
+            }
         }
     }
 
