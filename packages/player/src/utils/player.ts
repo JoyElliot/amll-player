@@ -53,6 +53,7 @@ export type AudioThreadMessageMap = {
 	playAudio: {
 		song: SongData;
 		playbackId?: string;
+		startPaused?: boolean;
 	};
 	stopAudio: undefined;
 	setVolume: {

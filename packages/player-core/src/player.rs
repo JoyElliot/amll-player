@@ -379,11 +379,15 @@ impl AudioPlayer {
                         warn!("找不到解码器句柄, 无法执行跳转");
                     }
                 }
-                AudioThreadMessage::PlayAudio { song, playback_id } => {
+                AudioThreadMessage::PlayAudio {
+                    song,
+                    playback_id,
+                    start_paused,
+                } => {
                     // Failed loads must not reuse the previous stream's identity.
                     self.current_playback_id.clear();
                     self.current_song = Some(song.clone());
-                    self.start_playing_song(true).await?;
+                    self.start_playing_song(true, *start_paused).await?;
                     self.current_playback_id = playback_id.clone().unwrap_or_default();
                 }
                 AudioThreadMessage::SetVolume { volume } => {
@@ -413,7 +417,9 @@ impl AudioPlayer {
                     self.current_stream = None;
                     self.current_song = None;
                     self.current_playback_id.clear();
-                    self.cpal_state.track_finished.store(false, Ordering::Release);
+                    self.cpal_state
+                        .track_finished
+                        .store(false, Ordering::Release);
 
                     {
                         let mut state = self.playback_state.write();
@@ -456,7 +462,11 @@ impl AudioPlayer {
         Ok(())
     }
 
-    async fn start_playing_song(&mut self, clear_sink: bool) -> anyhow::Result<()> {
+    async fn start_playing_song(
+        &mut self,
+        clear_sink: bool,
+        start_paused: bool,
+    ) -> anyhow::Result<()> {
         if clear_sink {
             self.current_stream = None;
             self.current_decoder_handle = None;
@@ -553,15 +563,17 @@ impl AudioPlayer {
             None,
         )?;
 
-        stream.play()?;
+        if !start_paused {
+            stream.play()?;
+        }
 
         self.current_stream = Some(stream);
 
         self.spawn_fft_pacemaker(spawned.fft_consumer, target_sample_rate);
 
         self.media_manager.update_metadata(&info);
-        self.media_manager.update_play_state(true);
-        let _ = self.is_playing_tx.send(true);
+        self.media_manager.update_play_state(!start_paused);
+        let _ = self.is_playing_tx.send(!start_paused);
 
         self.emitter()
             .emit(AudioThreadEvent::LoadAudio {
@@ -571,7 +583,9 @@ impl AudioPlayer {
             })
             .await?;
         self.emitter()
-            .emit(AudioThreadEvent::PlayStatus { is_playing: true })
+            .emit(AudioThreadEvent::PlayStatus {
+                is_playing: !start_paused,
+            })
             .await?;
 
         Ok(())
