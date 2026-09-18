@@ -258,22 +258,38 @@ export class PlayQueueManager {
 
 	//#region 队列设置
 	/**
-	 * 设置完整播放队列并开始播放第一首
+	 * 设置完整播放队列并开始播放指定歌曲
 	 * @param songs - Song[]（来自后端 DB）
 	 * @param playlistId - 来源播放列表 ID（可选）
+	 * @param startIndex - 原始歌曲索引；不传时从实际队列首项开始
 	 */
-	setQueue(songs: Song[], playlistId?: number): void {
-		if (songs.length === 0) return;
+	setQueue(songs: Song[], playlistId?: number, startIndex?: number): void {
+		if (this.disposed || songs.length === 0) return;
+		const requestedIndex =
+			startIndex !== undefined &&
+			Number.isInteger(startIndex) &&
+			startIndex >= 0 &&
+			startIndex < songs.length
+				? startIndex
+				: undefined;
 		this.originalList = [...songs];
 		this.playlistId = playlistId ?? null;
 
 		if (this.shuffleActive) {
-			this.playList = shuffleArray(songs);
+			// 按原始位置洗牌，重复 ID 或同一对象出现多次时也能选中指定项。
+			let order = shuffleArray(songs.map((_, index) => index));
+			if (requestedIndex !== undefined) {
+				const pivot = order.indexOf(requestedIndex);
+				if (pivot > 0) {
+					order = [...order.slice(pivot), ...order.slice(0, pivot)];
+				}
+			}
+			this.playList = order.map((index) => songs[index]);
 		} else {
 			this.playList = [...songs];
 		}
 
-		this.playSongAt(0);
+		void this.playSongAt(this.shuffleActive ? 0 : (requestedIndex ?? 0));
 	}
 
 	/**
