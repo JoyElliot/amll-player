@@ -90,6 +90,7 @@ export class PlayQueueManager {
 	private playlistId: number | null = null;
 	private currentPlaybackId = "";
 	private queueRevision = 0;
+	private queueEditRevision = 0;
 	private disposed = false;
 	private hasQueueState = false;
 	private playModeRevision = 0;
@@ -304,6 +305,49 @@ export class PlayQueueManager {
 
 		this.syncToAtoms();
 	}
+
+	/** 添加到实际队尾；随机播放时也不插到当前歌曲之后。 */
+	enqueueTail(song: Song): void {
+		if (this.disposed || this.originalList.some((s) => s.id === song.id))
+			return;
+		if (this.playList.length === 0) {
+			this.replaceQueueAndPlay(song);
+			return;
+		}
+		// 队列编辑只使旧读库结果失效，不取消当前歌曲的暂停恢复。
+		this.queueEditRevision++;
+		this.originalList.push(song);
+		this.playList.push(song);
+		this.syncToAtoms();
+	}
+
+	/** 放到当前歌曲之后；已在队列中时移动原有项，不替换其元数据。 */
+	enqueueNext(song: Song): void {
+		if (this.disposed) return;
+		if (this.playList.length === 0 || this.currentIndex < 0) {
+			this.replaceQueueAndPlay(song);
+			return;
+		}
+		const currentSongId = this.getCurrentSong()?.id;
+		if (!currentSongId || currentSongId === song.id) return;
+
+		this.queueEditRevision++;
+		const existingIndex = this.findInPlayList(song.id);
+		let queuedSong = song;
+		if (existingIndex >= 0) {
+			const [existingSong] = this.playList.splice(existingIndex, 1);
+			queuedSong = existingSong;
+			// 旧队列可能含重复 ID，按位置保留正在播放的那一项。
+			if (existingIndex < this.currentIndex) this.currentIndex--;
+		} else {
+			this.originalList.push(song);
+		}
+		this.playList.splice(this.currentIndex + 1, 0, queuedSong);
+		if (!this.shuffleActive) {
+			this.originalList = [...this.playList];
+		}
+		this.syncToAtoms();
+	}
 	//#endregion
 
 	//#region 播放控制
@@ -479,6 +523,7 @@ export class PlayQueueManager {
 	> {
 		if (this.disposed) return { restored: false, position: 0 };
 		const revision = ++this.queueRevision;
+		const editRevision = this.queueEditRevision;
 		const persisted = this.store.get(persistedQueueStateAtom);
 		if (!persisted || persisted.songIds.length === 0)
 			return { restored: false, position: 0 };
@@ -494,7 +539,11 @@ export class PlayQueueManager {
 				...new Set([...persisted.songIds, ...persisted.originalSongIds]),
 			];
 			const songs = await db.songs.getByIds(allSongIds);
-			if (this.disposed || revision !== this.queueRevision) {
+			if (
+				this.disposed ||
+				revision !== this.queueRevision ||
+				editRevision !== this.queueEditRevision
+			) {
 				return { restored: false, position: 0 };
 			}
 			const songMap = new Map(songs.map((s) => [s.id, s]));
