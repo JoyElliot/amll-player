@@ -18,13 +18,13 @@ const taskbarSource = readFileSync(
 		new URL("../src/pages/taskbar-lyric/index.tsx", import.meta.url),
 	),
 	"utf8",
-);
+).replaceAll("\r\n", "\n");
 const bridgeSource = readFileSync(
 	fileURLToPath(
 		new URL("../src/components/TaskbarLyricBridge/index.tsx", import.meta.url),
 	),
 	"utf8",
-);
+).replaceAll("\r\n", "\n");
 
 const lines = [{ startTime: 500 }, { startTime: 2_000 }, { startTime: 4_000 }];
 
