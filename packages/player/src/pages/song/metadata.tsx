@@ -14,7 +14,7 @@ import {
 	readLocalMusicMetadata,
 	saveCoverFromPath,
 } from "../../utils/player.ts";
-import { getLyricFormatFromExtension, Option } from "./common.tsx";
+import { Option } from "./common.tsx";
 import { SongContext } from "./song-ctx.ts";
 
 const MetaInput: FC<
@@ -87,26 +87,6 @@ export const MetadataTabContent: FC = () => {
 		});
 	}, [song]);
 
-	const importLyricFromFile = useCallback(() => {
-		if (song === undefined) return;
-		const input = document.createElement("input");
-		input.type = "file";
-		input.accept = ".lrc,.eslrc,.yrc,.qrc,.lys,.ttml";
-		input.onchange = async () => {
-			const file = input.files?.[0];
-			if (!file) return;
-			const format = getLyricFormatFromExtension(file.name);
-			if (!format) return;
-			const content = await file.text();
-			await db.songs.update(song.id, {
-				lyricFormat: format,
-				lyric: content,
-				...(format === "ttml" ? { translatedLrc: "", romanLrc: "" } : {}),
-			});
-		};
-		input.click();
-	}, [song]);
-
 	const saveData = useCallback(async () => {
 		if (song === undefined) return;
 		await db.songs.update(song.id, {
@@ -166,18 +146,6 @@ export const MetadataTabContent: FC = () => {
 			>
 				<Trans i18nKey="page.song.metadata.reloadMetadataFromFile">
 					重新从文件中读取元数据
-				</Trans>
-			</Button>
-			<Button
-				mt="4"
-				style={{
-					display: "block",
-				}}
-				variant="soft"
-				onClick={importLyricFromFile}
-			>
-				<Trans i18nKey="page.song.metadata.importLyricFromFile">
-					从本地文件导入歌词
 				</Trans>
 			</Button>
 			<Button
