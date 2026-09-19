@@ -244,6 +244,60 @@ impl FFmpegDecoder {
                         }
                     }
                     Ok(None) => {
+                        let mut interrupted_for_command = false;
+                        loop {
+                            match audio_resampler.process::<f32>(None) {
+                                Ok(true) => {
+                                    let audio_data = audio_resampler.output_as::<f32>();
+                                    let mut written = 0;
+                                    while written < audio_data.len() {
+                                        if shared_state.is_shutdown.load(Ordering::Acquire) {
+                                            return;
+                                        }
+                                        if !cmd_rx.is_empty() {
+                                            interrupted_for_command = true;
+                                            break;
+                                        }
+
+                                        let pushed =
+                                            audio_producer.push_slice(&audio_data[written..]);
+                                        written += pushed;
+
+                                        if pushed == 0 {
+                                            parker.park();
+                                        }
+                                    }
+
+                                    if interrupted_for_command {
+                                        break;
+                                    }
+                                }
+                                Ok(false) => break,
+                                Err(error) => {
+                                    warn!("排空音频重采样器失败: {error:?}");
+                                    break;
+                                }
+                            }
+                        }
+
+                        if interrupted_for_command {
+                            continue;
+                        }
+
+                        loop {
+                            match fft_resampler.process::<f32>(None) {
+                                Ok(true) => {
+                                    let fft_data = fft_resampler.output_as::<f32>();
+                                    let _ = fft_producer.push_slice(fft_data);
+                                }
+                                Ok(false) => break,
+                                Err(error) => {
+                                    warn!("排空 FFT 重采样器失败: {error:?}");
+                                    break;
+                                }
+                            }
+                        }
+
                         shared_state.is_eof.store(true, Ordering::Release);
                     }
                     Err(e) => {
@@ -266,6 +320,68 @@ impl FFmpegDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{io::Cursor, time::Instant};
+
+    fn sine_wav(sample_rate: u32) -> Vec<u8> {
+        // A short PCM fixture fits in both rings before the consumer starts.
+        let samples = sample_rate / 10;
+        let mut wav = Vec::new();
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36 + samples * 2).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&sample_rate.to_le_bytes());
+        wav.extend_from_slice(&(sample_rate * 2).to_le_bytes());
+        wav.extend_from_slice(&2u16.to_le_bytes());
+        wav.extend_from_slice(&16u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&(samples * 2).to_le_bytes());
+        for index in 0..samples {
+            let phase = index as f32 * 440.0 * std::f32::consts::TAU / sample_rate as f32;
+            wav.extend_from_slice(&((phase.sin() * 16000.0) as i16).to_le_bytes());
+        }
+        wav
+    }
+
+    fn reference_samples(wav: &[u8], sample_rate: u32, channels: i32) -> Vec<f32> {
+        let mut reader = AudioReader::new(Cursor::new(wav.to_vec()))
+            .unwrap()
+            .into_resampled(
+                ResampleOptions::new()
+                    .sample_rate(sample_rate as i32)
+                    .channels(channels)
+                    .format::<f32>(),
+            )
+            .unwrap();
+        let mut samples = Vec::new();
+        while let Some(frame) = reader.receive_frame_as::<f32>().unwrap() {
+            samples.extend_from_slice(frame);
+        }
+        samples
+    }
+
+    #[test]
+    fn eof_includes_audio_and_fft_resampler_tails() {
+        for (input_rate, output_rate) in [(44100, 48000), (48000, 44100)] {
+            let wav = sine_wav(input_rate);
+            let expected_audio = reference_samples(&wav, output_rate, 2);
+            let expected_fft = reference_samples(&wav, output_rate, 1);
+            let mut decoder = FFmpegDecoder::spawn(Cursor::new(wav), 2, output_rate).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !decoder.source.shared_state.is_eof.load(Ordering::Acquire) {
+                assert!(Instant::now() < deadline, "decoder did not reach EOF");
+                thread::sleep(Duration::from_millis(1));
+            }
+            let actual_audio: Vec<_> = decoder.source.by_ref().collect();
+            let actual_fft: Vec<_> = decoder.fft_consumer.pop_iter().collect();
+            assert_eq!(actual_audio.len() % 2, 0);
+            assert!(!actual_audio.is_empty());
+            assert_eq!(actual_audio, expected_audio, "audio {input_rate} -> {output_rate}");
+            assert_eq!(actual_fft, expected_fft, "FFT {input_rate} -> {output_rate}");
+        }
+    }
 
     #[test]
     fn flush_clears_old_samples_and_wakes_the_waiting_decoder() {
