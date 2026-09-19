@@ -23,7 +23,11 @@ export const SongCard = forwardRef<
 		<Box py="1" style={style} ref={ref}>
 			<ContextMenu.Root>
 				<ContextMenu.Trigger>
-					<Card onClick={() => {}}>
+					<Card
+						onDoubleClick={() => {
+							queueManager?.replaceQueueAndPlay(song);
+						}}
+					>
 						<Flex p="1" align="center" gap="4">
 							<Avatar size="5" fallback={<div />} src={songImgUrl} />
 							<Flex
