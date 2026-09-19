@@ -310,12 +310,12 @@ impl AudioPlayer {
                 AudioThreadMessage::ResumeAudio => {
                     if let Some(stream) = &self.current_stream {
                         let _ = stream.play();
+                        let _ = self.is_playing_tx.send(true);
+                        self.media_manager.update_play_state(true);
+                        let _ = emitter
+                            .emit(AudioThreadEvent::PlayStatus { is_playing: true })
+                            .await;
                     }
-                    let _ = self.is_playing_tx.send(true);
-                    self.media_manager.update_play_state(true);
-                    let _ = emitter
-                        .emit(AudioThreadEvent::PlayStatus { is_playing: true })
-                        .await;
                 }
                 AudioThreadMessage::PauseAudio => {
                     if let Some(stream) = &self.current_stream {
