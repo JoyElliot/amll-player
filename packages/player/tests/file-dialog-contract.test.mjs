@@ -25,6 +25,7 @@ const newPlaylist = readProjectFile(
 );
 const extension = readProjectFile("../src/pages/settings/extension.tsx");
 const metadata = readProjectFile("../src/pages/song/metadata.tsx");
+const lyric = readProjectFile("../src/pages/song/lyric.tsx");
 
 test("所有应用文件选择入口统一经过安全 helper", () => {
 	const directImports = collectTypeScriptFiles(sourceRoot)
@@ -43,7 +44,8 @@ test("所有应用文件选择入口统一经过安全 helper", () => {
 	assert.match(extension, /openFileDialog\(\{[\s\S]*multiple:\s*true/);
 	assert.match(metadata, /openFileDialog\(\{[\s\S]*multiple:\s*false/);
 	assert.match(metadata, /await saveCoverFromPath\(song\.id, selected\)/);
-	assert.match(metadata, /const importLyricFromFile = useCallback/);
+	assert.match(lyric, /const openLocalLyricFile = useCallback/);
+	assert.match(lyric, /onClick=\{openLocalLyricFile\}/);
 });
 
 test("Windows helper 使用 ownerless 命令并阻止重复原生对话框", () => {
