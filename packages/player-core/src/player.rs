@@ -384,11 +384,12 @@ impl AudioPlayer {
                     playback_id,
                     start_paused,
                 } => {
-                    // Failed loads must not reuse the previous stream's identity.
-                    self.current_playback_id.clear();
-                    self.current_song = Some(song.clone());
-                    self.start_playing_song(true, *start_paused).await?;
                     self.current_playback_id = playback_id.clone().unwrap_or_default();
+                    self.current_song = Some(song.clone());
+                    if let Err(error) = self.start_playing_song(true, *start_paused).await {
+                        self.fail_playback_start(&emitter, &error, !start_paused)
+                            .await;
+                    }
                 }
                 AudioThreadMessage::SetVolume { volume } => {
                     self.volume = (*volume as f32).clamp(0.0, 1.0);
@@ -460,6 +461,50 @@ impl AudioPlayer {
         }
         emitter.ret_none(msg).await?;
         Ok(())
+    }
+
+    async fn fail_playback_start(
+        &mut self,
+        emitter: &AudioPlayerEventEmitter,
+        error: &anyhow::Error,
+        should_publish_stopped: bool,
+    ) {
+        warn!("启动音频播放失败：{error:#}");
+        let playback_id = std::mem::take(&mut self.current_playback_id);
+        if let Some(token) = self.current_song_token.take() {
+            token.cancel();
+        }
+        self.current_stream = None;
+        self.current_decoder_handle = None;
+        self.current_song = None;
+        self.cpal_state
+            .track_finished
+            .store(false, Ordering::Release);
+        self.cpal_state.consumed_frames.store(0, Ordering::Release);
+        {
+            let mut state = self.playback_state.write();
+            state.base_time_sec = 0.0;
+            state.samples_counter = None;
+        }
+        let _ = self.is_playing_tx.send(false);
+        self.media_manager.update_play_state(false);
+        if should_publish_stopped {
+            if let Err(error) = emitter
+                .emit(AudioThreadEvent::PlayStatus { is_playing: false })
+                .await
+            {
+                warn!("发送加载失败后的播放停止状态失败：{error:?}");
+            }
+        }
+        if let Err(error) = emitter
+            .emit(AudioThreadEvent::LoadError {
+                playback_id,
+                error: format!("{error:#}"),
+            })
+            .await
+        {
+            warn!("发送音频加载失败事件失败：{error:?}");
+        }
     }
 
     async fn start_playing_song(

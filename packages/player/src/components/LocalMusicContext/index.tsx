@@ -425,7 +425,9 @@ export const LocalMusicContext: FC = () => {
 			onPlayOrResumeAtom,
 			toEmit(() => {
 				queueManager.cancelRestore();
-				emitAudioThread("resumeOrPauseAudio");
+				if (!queueManager.retryFailedPlayback()) {
+					emitAudioThread("resumeOrPauseAudio");
+				}
 			}),
 		);
 
@@ -572,7 +574,9 @@ export const LocalMusicContext: FC = () => {
 				}
 
 				case "hardwareMediaCommand": {
-					if (evtData.data.command === "next") {
+					if (evtData.data.command === "play") {
+						queueManager.retryFailedPlayback();
+					} else if (evtData.data.command === "next") {
 						queueManager.advanceForUser();
 					} else if (evtData.data.command === "prev") {
 						queueManager.retreatForUser();
@@ -588,6 +592,11 @@ export const LocalMusicContext: FC = () => {
 				}
 
 				case "loadError": {
+					if (
+						!queueManager.handlePlaybackLoadFailure(evtData.data.playbackId)
+					) {
+						break;
+					}
 					toast.error(
 						t("amll.loadAudioError", "播放后端加载音频失败\n{error}", {
 							error: evtData.data.error,

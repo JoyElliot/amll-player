@@ -117,7 +117,7 @@ export type AudioThreadEvent =
 	  }
 	| {
 			type: "loadError";
-			data: { error: string };
+			data: { playbackId: string; error: string };
 	  }
 	| {
 			type: "playError";

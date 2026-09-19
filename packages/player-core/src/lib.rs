@@ -124,7 +124,7 @@ pub enum AudioThreadEvent {
     #[serde(rename_all = "camelCase")]
     PlayStatus { is_playing: bool },
     #[serde(rename_all = "camelCase")]
-    LoadError { error: String },
+    LoadError { playback_id: String, error: String },
     #[serde(rename_all = "camelCase")]
     PlayError { error: String },
     #[serde(rename_all = "camelCase")]
@@ -138,6 +138,22 @@ pub enum AudioThreadEvent {
 mod protocol_tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn load_error_carries_the_failed_playback_identity() {
+        let event = AudioThreadEvent::LoadError {
+            playback_id: "failed-request".into(),
+            error: "missing file".into(),
+        };
+        assert_eq!(
+            serde_json::to_value(event).unwrap(),
+            json!({
+                "type": "loadError", "data": {
+                    "playbackId": "failed-request", "error": "missing file"
+                }
+            })
+        );
+    }
 
     #[test]
     fn accepts_legacy_play_request_without_identity() {

@@ -89,6 +89,7 @@ export class PlayQueueManager {
 	private shuffleActive = false;
 	private playlistId: number | null = null;
 	private currentPlaybackId = "";
+	private playbackLoadFailed = false;
 	private queueRevision = 0;
 	private disposed = false;
 	private hasQueueState = false;
@@ -210,6 +211,7 @@ export class PlayQueueManager {
 		this.currentIndex = index;
 		this.syncToAtoms();
 		const song = this.playList[index];
+		this.playbackLoadFailed = false;
 		this.currentPlaybackId = crypto.randomUUID();
 		await emitAudioThread("playAudio", {
 			song: {
@@ -307,6 +309,24 @@ export class PlayQueueManager {
 	//#endregion
 
 	//#region 播放控制
+	/** 失败的流已被释放，再次播放需要重新加载当前歌曲。 */
+	retryFailedPlayback(): boolean {
+		if (this.disposed || !this.playbackLoadFailed || !this.getCurrentSong())
+			return false;
+		void this.playSongAt(this.currentIndex);
+		return true;
+	}
+
+	handlePlaybackLoadFailure(playbackId: string): boolean {
+		if (this.disposed || !playbackId || playbackId !== this.currentPlaybackId)
+			return false;
+		this.cancelRestore();
+		this.currentPlaybackId = "";
+		this.playbackLoadFailed = true;
+		this.store.set(musicPlayingAtom, false);
+		return true;
+	}
+
 	/** 跳转到指定索引播放 */
 	playAt(index: number): void {
 		this.playSongAt(index);
@@ -368,6 +388,7 @@ export class PlayQueueManager {
 	setExternalStopped(): void {
 		this.cancelRestore();
 		this.currentPlaybackId = "";
+		this.playbackLoadFailed = false;
 		this.store.set(musicPlayingAtom, false);
 		this.store.set(musicPlayingPositionAtom, 0);
 	}
