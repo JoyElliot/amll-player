@@ -315,6 +315,10 @@ export const TaskbarLyricApp = () => {
 			(evt) => {
 				const previousMusicId = musicIdRef.current;
 				const trackChanged = previousMusicId !== evt.payload.musicId;
+				if (previousMusicId !== null && trackChanged) {
+					positionRef.current = 0;
+					anchorRef.current = { position: 0, time: performance.now() };
+				}
 				musicIdRef.current = evt.payload.musicId;
 				lyricLinesRef.current = evt.payload.lyricLines;
 				dispatch({
