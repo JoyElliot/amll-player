@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { stripTypeScriptTypes } from "node:module";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
@@ -26,6 +27,31 @@ const bridgeSource = readFileSync(
 );
 
 const lines = [{ startTime: 500 }, { startTime: 2_000 }, { startTime: 4_000 }];
+
+test("新歌位置事件尚未到达时，动画帧和重复元数据不会沿用旧歌位置", () => {
+	const listenerBody = taskbarSource.match(/const unlistenMetadata = [\s\S]*?\(evt\) => \{([\s\S]*?)\n\t\t\t\},\n\t\t\);/)?.[1];
+	const frameBody = taskbarSource.match(/const onFrame = \(\) => \{([\s\S]*?)\n\t\t\};/)?.[1];
+	assert.ok(listenerBody);
+	assert.ok(frameBody);
+	const positionRef = { current: 30_000 };
+	const anchorRef = { current: { position: 30_000, time: 0 } };
+	const musicIdRef = { current: "song-a" };
+	const lyricLinesRef = { current: [] };
+	const actions = [];
+	const dispatch = (action) => actions.push(action);
+	const clock = { now: () => 1000 };
+	const receive = new Function("evt", "musicIdRef", "lyricLinesRef", "positionRef", "anchorRef", "performance", "dispatch", "findMetadataLyricIndex", stripTypeScriptTypes(listenerBody));
+	const payload = { musicId: "song-b", lyricLines: [{ startTime: 2000, endTime: 3000, words: [] }, { startTime: 4000, endTime: 5000, words: [] }] };
+	const sync = () => receive({ payload }, musicIdRef, lyricLinesRef, positionRef, anchorRef, clock, dispatch, findMetadataLyricIndex);
+	sync();
+	const frame = new Function("anchorRef", "positionRef", "lyricLinesRef", "performance", "dispatch", "findDisplayedLyricIndex", "requestAnimationFrame", "publishPosition", `let rafId; const onFrame = () => {}; ${stripTypeScriptTypes(frameBody)}`);
+	frame(anchorRef, positionRef, lyricLinesRef, clock, dispatch, findDisplayedLyricIndex, () => 1, () => {});
+	assert.equal(positionRef.current, 0);
+	assert.equal(actions.at(-1).payload, -1);
+	sync();
+	assert.equal(actions.at(-1).currentLyricIndex, -1);
+	assert.equal(actions.at(-1).trackChanged, false);
+});
 
 test("暂停时再次同步元数据仍按缓存进度恢复当前歌词", () => {
 	assert.equal(findMetadataLyricIndex("song-a", "song-a", lines, 3_000), 1);
