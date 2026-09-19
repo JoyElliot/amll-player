@@ -40,7 +40,9 @@ import {
 	type TaskbarLyricPlayStatusPayload,
 	type TaskbarLyricPositionPayload,
 	type TaskbarLyricThemePayload,
+	type TaskbarLyricWordProgressPayload,
 	THEME_EVENT,
+	WORD_PROGRESS_EVENT,
 } from "../../components/TaskbarLyricBridge/types.ts";
 import styles from "./index.module.css";
 import "@applemusic-like-lyrics/react-full/style.css";
@@ -51,6 +53,7 @@ import {
 	reconcileMetadataTimeline,
 	taskbarContentGroupKey,
 } from "./lyric-timeline.ts";
+import { normalizeTaskbarWordFadeWidth } from "./word-progress.ts";
 
 function getLyricText(line: LyricLine): string {
 	return line.words.map((w) => w.word).join("");
@@ -59,6 +62,7 @@ function getLyricText(line: LyricLine): string {
 type LyricItem = {
 	key: string;
 	text: string;
+	words?: LyricLine["words"];
 	status: "primary" | "secondary";
 	startTime?: number;
 	endTime?: number;
@@ -82,6 +86,8 @@ interface AppState {
 	alignSetting: "left" | "right" | "auto";
 	systemMode: "single" | "double";
 	modeSetting: "auto" | "single" | "double";
+	wordProgressEnabled: boolean;
+	wordFadeWidth: number;
 }
 
 type Action =
@@ -98,7 +104,8 @@ type Action =
 	| { type: "UPDATE_SYSTEM_ALIGN"; payload: "left" | "right" }
 	| { type: "UPDATE_ALIGN_SETTING"; payload: "left" | "right" | "auto" }
 	| { type: "UPDATE_SYSTEM_MODE"; payload: "single" | "double" }
-	| { type: "UPDATE_MODE_SETTING"; payload: "auto" | "single" | "double" };
+	| { type: "UPDATE_MODE_SETTING"; payload: "auto" | "single" | "double" }
+	| { type: "UPDATE_WORD_PROGRESS"; payload: TaskbarLyricWordProgressPayload };
 
 function reducer(state: AppState, action: Action): AppState {
 	switch (action.type) {
@@ -157,6 +164,12 @@ function reducer(state: AppState, action: Action): AppState {
 			return { ...state, systemMode: action.payload };
 		case "UPDATE_MODE_SETTING":
 			return { ...state, modeSetting: action.payload };
+		case "UPDATE_WORD_PROGRESS":
+			return {
+				...state,
+				wordProgressEnabled: action.payload.enabled,
+				wordFadeWidth: normalizeTaskbarWordFadeWidth(action.payload.fadeWidth),
+			};
 		default:
 			return state;
 	}
@@ -178,6 +191,8 @@ const initialState: AppState = {
 	alignSetting: "auto",
 	systemMode: "double",
 	modeSetting: "auto",
+	wordProgressEnabled: false,
+	wordFadeWidth: 0.5,
 };
 
 export const TaskbarLyricApp = () => {
@@ -210,22 +225,41 @@ export const TaskbarLyricApp = () => {
 		};
 	}, []);
 
+	const positionSubscribersRef = useRef<Set<(position: number) => void>>(
+		new Set(),
+	);
+	const publishPosition = useCallback((position: number) => {
+		positionSubscribersRef.current.forEach((callback) => {
+			callback(position);
+		});
+	}, []);
+	const subscribePosition = useCallback(
+		(callback: (position: number) => void) => {
+			positionSubscribersRef.current.add(callback);
+			return () => {
+				positionSubscribersRef.current.delete(callback);
+			};
+		},
+		[],
+	);
+
 	const lyricLinesRef = useRef<LyricLine[]>([]);
 	const musicIdRef = useRef<string | null>(null);
 	useEffect(() => {
 		lyricLinesRef.current = state.lyricLines;
 	}, [state.lyricLines]);
 
-	const updateAnchor = useCallback((pos: number) => {
-		anchorRef.current = { position: pos, time: performance.now() };
-		positionRef.current = pos;
+	const updateAnchor = useCallback(
+		(pos: number) => {
+			anchorRef.current = { position: pos, time: performance.now() };
+			positionRef.current = pos;
+			publishPosition(pos);
 
-		const nextIndex = findDisplayedLyricIndex(
-			lyricLinesRef.current,
-			pos,
-		);
-		dispatch({ type: "UPDATE_INDEX", payload: nextIndex });
-	}, []);
+			const nextIndex = findDisplayedLyricIndex(lyricLinesRef.current, pos);
+			dispatch({ type: "UPDATE_INDEX", payload: nextIndex });
+		},
+		[publishPosition],
+	);
 
 	const fetchSystemTheme = async (): Promise<"light" | "dark"> => {
 		try {
@@ -354,6 +388,15 @@ export const TaskbarLyricApp = () => {
 			dispatch({ type: "UPDATE_MODE_SETTING", payload: evt.payload.mode }),
 		);
 
+		const unlistenWordProgress = listen<TaskbarLyricWordProgressPayload>(
+			WORD_PROGRESS_EVENT,
+			(evt) =>
+				dispatch({
+					type: "UPDATE_WORD_PROGRESS",
+					payload: evt.payload,
+				}),
+		);
+
 		const unlistenFadeOut = listen(FADE_OUT_EVENT, () => {
 			setIsVisible(false);
 		});
@@ -373,6 +416,7 @@ export const TaskbarLyricApp = () => {
 			unlistenFadeOut.then((fn) => fn());
 			unlistenFadeIn.then((fn) => fn());
 			unlistenMode.then((fn) => fn());
+			unlistenWordProgress.then((fn) => fn());
 		};
 	}, [updateAnchor]);
 
@@ -384,6 +428,7 @@ export const TaskbarLyricApp = () => {
 			const elapsed = performance.now() - anchorRef.current.time;
 			const currentPos = anchorRef.current.position + elapsed;
 			positionRef.current = currentPos;
+			publishPosition(currentPos);
 
 			const nextIndex = findDisplayedLyricIndex(
 				lyricLinesRef.current,
@@ -398,7 +443,7 @@ export const TaskbarLyricApp = () => {
 		rafId = requestAnimationFrame(onFrame);
 
 		return () => cancelAnimationFrame(rafId);
-	}, [state.musicPlaying]);
+	}, [publishPosition, state.musicPlaying]);
 
 	const {
 		musicId,
@@ -415,6 +460,8 @@ export const TaskbarLyricApp = () => {
 		alignSetting,
 		systemMode,
 		modeSetting,
+		wordProgressEnabled,
+		wordFadeWidth,
 	} = state;
 
 	const theme = themeSetting === "auto" ? systemTheme : themeSetting;
@@ -450,6 +497,7 @@ export const TaskbarLyricApp = () => {
 			items.push({
 				key: `lyric-${currentLyricIndex}`,
 				text: getLyricText(currentLine),
+				words: currentLine.words,
 				status: "primary",
 				startTime: currentLine.startTime,
 				endTime: currentLine.endTime,
@@ -788,6 +836,12 @@ export const TaskbarLyricApp = () => {
 												isActive={item.isActive}
 												isPlaying={state.musicPlaying}
 												getCurrentPosition={() => positionRef.current}
+												words={item.words}
+												wordProgressEnabled={wordProgressEnabled}
+												wordFadeWidth={wordFadeWidth}
+												subscribePosition={
+													item.status === "primary" ? subscribePosition : undefined
+												}
 												onProgress={
 													item.status === "primary"
 														? publishProgress
