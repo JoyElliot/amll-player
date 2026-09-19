@@ -44,25 +44,12 @@ import {
 import styles from "./index.module.css";
 import "@applemusic-like-lyrics/react-full/style.css";
 import { LyricScroll } from "./LyricScroll.tsx";
-
-const LYRIC_OFFSET = 300;
-
-function findCurrentLyricIndex(lines: LyricLine[], position: number): number {
-	let low = 0;
-	let high = lines.length - 1;
-	let index = -1;
-	while (low <= high) {
-		const mid = Math.floor((low + high) / 2);
-		const lineTime = lines[mid].startTime;
-		if (lineTime <= position) {
-			index = mid;
-			low = mid + 1;
-		} else {
-			high = mid - 1;
-		}
-	}
-	return index;
-}
+import {
+	findDisplayedLyricIndex,
+	findMetadataLyricIndex,
+	reconcileMetadataTimeline,
+	taskbarContentGroupKey,
+} from "./lyric-timeline.ts";
 
 function getLyricText(line: LyricLine): string {
 	return line.words.map((w) => w.word).join("");
@@ -79,6 +66,7 @@ type LyricItem = {
 };
 
 interface AppState {
+	musicId: string;
 	musicName: string;
 	musicArtists: string;
 	musicCover: string;
@@ -96,7 +84,12 @@ interface AppState {
 }
 
 type Action =
-	| { type: "SYNC_METADATA"; payload: TaskbarLyricMetadataPayload }
+	| {
+			type: "SYNC_METADATA";
+			payload: TaskbarLyricMetadataPayload;
+			currentLyricIndex: number;
+			trackChanged: boolean;
+	  }
 	| { type: "UPDATE_INDEX"; payload: number }
 	| { type: "UPDATE_PLAY_STATUS"; payload: boolean }
 	| { type: "UPDATE_SYSTEM_THEME"; payload: "dark" | "light" }
@@ -110,15 +103,23 @@ function reducer(state: AppState, action: Action): AppState {
 	switch (action.type) {
 		case "SYNC_METADATA": {
 			const data = action.payload;
+			const timeline = reconcileMetadataTimeline(
+				state.currentLyricIndex,
+				state.jumpState,
+				action.currentLyricIndex,
+				action.trackChanged,
+				data.lyricLines.length,
+			);
 			return {
 				...state,
+				musicId: data.musicId,
 				musicName: data.musicName,
 				musicArtists: data.musicArtists.map((a) => a.name).join(" / "),
 				musicCover: data.musicCover,
 				musicCoverIsVideo: data.musicCoverIsVideo,
 				lyricLines: data.lyricLines,
-				currentLyricIndex: -1,
-				jumpState: { lastIndex: -1, jumpId: 0 },
+				currentLyricIndex: timeline.currentLyricIndex,
+				jumpState: timeline.jumpState,
 			};
 		}
 
@@ -161,6 +162,7 @@ function reducer(state: AppState, action: Action): AppState {
 }
 
 const initialState: AppState = {
+	musicId: "",
 	musicName: "未知歌曲",
 	musicArtists: "",
 	musicCover: "",
@@ -208,6 +210,7 @@ export const TaskbarLyricApp = () => {
 	}, []);
 
 	const lyricLinesRef = useRef<LyricLine[]>([]);
+	const musicIdRef = useRef<string | null>(null);
 	useEffect(() => {
 		lyricLinesRef.current = state.lyricLines;
 	}, [state.lyricLines]);
@@ -216,9 +219,9 @@ export const TaskbarLyricApp = () => {
 		anchorRef.current = { position: pos, time: performance.now() };
 		positionRef.current = pos;
 
-		const nextIndex = findCurrentLyricIndex(
+		const nextIndex = findDisplayedLyricIndex(
 			lyricLinesRef.current,
-			pos + LYRIC_OFFSET,
+			pos,
 		);
 		dispatch({ type: "UPDATE_INDEX", payload: nextIndex });
 	}, []);
@@ -275,7 +278,21 @@ export const TaskbarLyricApp = () => {
 		const unlistenMetadata = listen<TaskbarLyricMetadataPayload>(
 			METADATA_EVENT,
 			(evt) => {
-				dispatch({ type: "SYNC_METADATA", payload: evt.payload });
+				const previousMusicId = musicIdRef.current;
+				const trackChanged = previousMusicId !== evt.payload.musicId;
+				musicIdRef.current = evt.payload.musicId;
+				lyricLinesRef.current = evt.payload.lyricLines;
+				dispatch({
+					type: "SYNC_METADATA",
+					payload: evt.payload,
+					currentLyricIndex: findMetadataLyricIndex(
+						previousMusicId,
+						evt.payload.musicId,
+						evt.payload.lyricLines,
+						positionRef.current,
+					),
+					trackChanged,
+				});
 			},
 		);
 
@@ -367,10 +384,9 @@ export const TaskbarLyricApp = () => {
 			const currentPos = anchorRef.current.position + elapsed;
 			positionRef.current = currentPos;
 
-			const effectivePosition = currentPos + LYRIC_OFFSET;
-			const nextIndex = findCurrentLyricIndex(
+			const nextIndex = findDisplayedLyricIndex(
 				lyricLinesRef.current,
-				effectivePosition,
+				currentPos,
 			);
 
 			dispatch({ type: "UPDATE_INDEX", payload: nextIndex });
@@ -384,6 +400,7 @@ export const TaskbarLyricApp = () => {
 	}, [state.musicPlaying]);
 
 	const {
+		musicId,
 		musicName,
 		musicArtists,
 		musicCover,
@@ -403,23 +420,22 @@ export const TaskbarLyricApp = () => {
 	const align = alignSetting === "auto" ? systemAlign : alignSetting;
 
 	const hasLyrics = lyricLines.length > 0;
-	const isMetadataMode = currentLyricIndex < 0 || !hasLyrics;
+	const currentLine =
+		currentLyricIndex >= 0 ? lyricLines[currentLyricIndex] : null;
+	const isMetadataMode = currentLyricIndex < 0 || !hasLyrics || !currentLine;
 	const displayAsMetadata = isMetadataMode || isHovered;
 	const isSingleLineMode =
 		modeSetting === "auto" ? systemMode === "single" : modeSetting === "single";
-
-	const currentLine =
-		currentLyricIndex >= 0 ? lyricLines[currentLyricIndex] : null;
 	const subLyricText = currentLine
 		? currentLine.translatedLyric || currentLine.romanLyric || ""
 		: "";
 	const hasSubLyric = Boolean(subLyricText);
 
-	const groupKey = displayAsMetadata
-		? `meta-${musicName}-${musicArtists}`
-		: hasSubLyric
-			? `lyrics-group-${musicName}-${currentLyricIndex}`
-			: `lyrics-${musicName}-${jumpState.jumpId}`;
+	const groupKey = taskbarContentGroupKey(
+		musicId,
+		displayAsMetadata,
+		jumpState.jumpId,
+	);
 
 	const lyricItems: LyricItem[] = useMemo(() => {
 		if (displayAsMetadata) return [];
@@ -477,6 +493,7 @@ export const TaskbarLyricApp = () => {
 		currentLine,
 		hasSubLyric,
 		subLyricText,
+		isSingleLineMode,
 	]);
 
 	const handleMouseEnter = () => {
