@@ -44,6 +44,8 @@ export const NowPlayingBar: FC = () => {
 		barRef: playbarRef,
 		compactCoverRef,
 		compactVideoRef,
+		compactInfoRef,
+		compactInfoSlotRef,
 		openButtonRef,
 		opened,
 	} = usePlaybackPresentation();
@@ -148,8 +150,6 @@ export const NowPlayingBar: FC = () => {
 						</div>
 					</button>
 					<Flex
-						className={styles.departingContent}
-						data-player-reveal="metadata"
 						direction="column"
 						justify="center"
 						ml="4"
@@ -160,10 +160,18 @@ export const NowPlayingBar: FC = () => {
 							textWrap: "nowrap",
 						}}
 					>
-						<TextMarquee>{musicName}</TextMarquee>
-						<TextMarquee>
-							{musicArtists.map((v) => v.name).join(", ")}
-						</TextMarquee>
+						<div ref={compactInfoSlotRef} className={styles.metadataSlot}>
+							<div
+								ref={compactInfoRef}
+								className={styles.metadata}
+								id="amll-compact-info"
+							>
+								<TextMarquee>{musicName}</TextMarquee>
+								<TextMarquee>
+									{musicArtists.map((v) => v.name).join(", ")}
+								</TextMarquee>
+							</div>
+						</div>
 					</Flex>
 				</Flex>
 				<Flex

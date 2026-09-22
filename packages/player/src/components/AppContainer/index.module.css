@@ -80,7 +80,7 @@
 		var(--player-open-progress, 0)
 	);
 	background-color: var(--color-panel-solid, rgb(17 17 17 / 0.78));
-	transition: background-color 0.25s 0.34s ease-out;
+	transition: background-color 0.18s 0.24s ease-out;
 
 	&::before {
 		content: "";
@@ -93,12 +93,12 @@
 		background: var(--gray-6);
 		opacity: 1;
 		pointer-events: none;
-		transition: opacity 0.11s 0.59s ease-out;
+		transition: opacity 0.08s 0.42s ease-out;
 	}
 
 	&.expanded {
 		background-color: #111;
-		transition: background-color 0.22s ease-out;
+		transition: background-color 0.16s ease-out;
 		&::before {
 			opacity: 0;
 		}
