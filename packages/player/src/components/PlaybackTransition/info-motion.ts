@@ -47,8 +47,7 @@ export function createInfoMotion(
 		!name ||
 		!fullName ||
 		name.textContent !== fullName.textContent ||
-		full().height === 0 ||
-		typeof source.showPopover !== "function"
+		full().height === 0
 	)
 		return;
 	// This transition owns the text. Freeze the library's delayed slide at its
@@ -59,7 +58,6 @@ export function createInfoMotion(
 	const start = previous ?? (opening ? compact() : full());
 	const target = opening ? full() : compact();
 	const visibility = destination.style.visibility;
-	const animations: Animation[] = [];
 	destination.style.visibility = "hidden";
 	source.setAttribute("popover", "manual");
 	source.showPopover();
@@ -87,14 +85,13 @@ export function createInfoMotion(
 					lineHeight: `${mix(start.lineHeight, target.lineHeight, horizontal)}px`,
 				});
 			}
-			animations.push(animate(source, frames, { easing: "linear" }));
+			animate(source, frames, { easing: "linear" });
 		},
 		capture: () => measure(source),
 		readTarget: () => (opening ? full() : compact()),
 		restore() {
-			// Keep the final pose through hidePopover; cancel before the native handoff paints.
+			// Keep the final pose through hidePopover; the controller cancels before paint.
 			if (source.matches(":popover-open")) source.hidePopover();
-			for (const animation of animations) animation.cancel();
 			source.removeAttribute("popover");
 			source.style.removeProperty("left");
 			source.style.removeProperty("top");

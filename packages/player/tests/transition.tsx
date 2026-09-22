@@ -129,9 +129,34 @@ function Surface() {
 
 function TestControls() {
 	const [result, setResult] = useState("尚未运行");
+	const [running, setRunning] = useState(false);
 	const [videoUrl, setVideoUrl] = useState("");
 	const [changeDuringTransition, setChangeDuringTransition] = useState(false);
 	const run = async () => {
+		setRunning(true);
+		const original = {
+			cover: store.get(musicCoverAtom),
+			playing: store.get(musicPlayingAtom),
+			hideLyric: store.get(hideLyricViewAtom),
+			coverLayout: store.get(verticalCoverLayoutAtom),
+		};
+		const handoffs = new Map<HTMLElement, PropertyDescriptor | undefined>();
+		const watchHandoff = (node: HTMLElement, sample: () => () => void) => {
+			handoffs.set(node, Object.getOwnPropertyDescriptor(node, "hidePopover"));
+			const hide = node.hidePopover;
+			node.hidePopover = () => {
+				const afterHide = sample();
+				hide.call(node);
+				queueMicrotask(afterHide);
+			};
+		};
+		const restoreHandoffs = () => {
+			for (const [node, descriptor] of handoffs) {
+				if (descriptor) Object.defineProperty(node, "hidePopover", descriptor);
+				else Reflect.deleteProperty(node, "hidePopover");
+			}
+			handoffs.clear();
+		};
 		const checks: string[] = [];
 		const check = (condition: boolean, label: string) => {
 			if (!condition) throw new Error(label);
@@ -167,6 +192,8 @@ function TestControls() {
 					};
 				}),
 			);
+		const matchingTextAppearance = () =>
+			textAppearance(info(), false) === textAppearance(fullInfo(), false);
 		type Point = { left: number; top: number };
 		let path: { start: Point; end: Point; linear?: boolean } | undefined;
 		let pathError = 0;
@@ -229,7 +256,7 @@ function TestControls() {
 				"底栏字号固定16px，行高固定20px",
 			);
 			check(
-				textAppearance(info(), false) === textAppearance(fullInfo(), false),
+				matchingTextAppearance(),
 				"底栏和全屏共用字体外观与歌手分隔，允许字号不同",
 			);
 			const closedBeforeFocus = sheet().getBoundingClientRect();
@@ -293,32 +320,28 @@ function TestControls() {
 			let openDuration = 0;
 			let closeDuration = 0;
 			const nativeInfo = info();
-			const hideInfo = nativeInfo.hidePopover;
-			nativeInfo.hidePopover = () => {
+			watchHandoff(nativeInfo, () => {
 				openDuration = performance.now() - openedAt;
 				const before = nativeInfo.getBoundingClientRect();
 				const textBefore = textAppearance(nativeInfo);
-				hideInfo.call(nativeInfo);
-				queueMicrotask(() => {
+				return () => {
 					infoHandoff = { before, after: fullInfo().getBoundingClientRect() };
 					textHandoff = {
 						before: textBefore,
 						after: textAppearance(fullInfo()),
 					};
-				});
-			};
-			const hidePopover = nativeCover.hidePopover;
-			nativeCover.hidePopover = () => {
+				};
+			});
+			watchHandoff(nativeCover, () => {
 				const before = nativeCover.getBoundingClientRect();
-				hidePopover.call(nativeCover);
-				queueMicrotask(() => {
+				return () => {
 					handoff = { before, after: nativeCover.getBoundingClientRect() };
-				});
-			};
+				};
+			});
 			if (!reduced) {
 				await settle(80);
 				check(
-					textAppearance(info(), false) === textAppearance(fullInfo(), false),
+					matchingTextAppearance(),
 					"展开途中字重字距等外观与歌手分隔保持全屏样式",
 				);
 				const movingFontSize = Number.parseFloat(
@@ -417,8 +440,7 @@ function TestControls() {
 			// A layout change starts the library's separate cover spring. The sheet
 			// finishes first; the cover can briefly correct its moving destination.
 			await settle(changeDuringTransition ? 1200 : 650);
-			nativeCover.hidePopover = hidePopover;
-			nativeInfo.hidePopover = hideInfo;
+			restoreHandoffs();
 			if (!reduced && !changeDuringTransition) {
 				check(
 					motionSamples > 5 && pathError < 1,
@@ -499,14 +521,13 @@ function TestControls() {
 			motionSamples = 0;
 			lastPoint = undefined;
 			const closedAt = performance.now();
-			nativeInfo.hidePopover = () => {
+			watchHandoff(nativeInfo, () => {
 				closeDuration = performance.now() - closedAt;
 				const before = textAppearance(nativeInfo);
-				hideInfo.call(nativeInfo);
-				queueMicrotask(() => {
+				return () => {
 					textHandoff = { before, after: textAppearance(nativeInfo) };
-				});
-			};
+				};
+			});
 			flushSync(() =>
 				document
 					.querySelector<HTMLButtonElement>("[aria-label='收起播放页']")!
@@ -521,7 +542,7 @@ function TestControls() {
 				await settle(80);
 				const returningInfo = info().getBoundingClientRect();
 				check(
-					textAppearance(info(), false) === textAppearance(fullInfo(), false),
+					matchingTextAppearance(),
 					"收起途中字重字距等外观与歌手分隔保持全屏样式",
 				);
 				const deltaX = path.end.left - path.start.left;
@@ -569,7 +590,7 @@ function TestControls() {
 				);
 			}
 			await settle();
-			nativeInfo.hidePopover = hideInfo;
+			restoreHandoffs();
 			if (releaseVideoWait) {
 				const waiting = nativeCover.matches(":popover-open");
 				window.dispatchEvent(new Event("resize"));
@@ -590,7 +611,7 @@ function TestControls() {
 			}
 			path = undefined;
 			check(
-				textAppearance(info(), false) === textAppearance(fullInfo(), false) &&
+				matchingTextAppearance() &&
 					getComputedStyle(info()).fontSize === "16px" &&
 					(reduced ||
 						(!!textHandoff && textHandoff.before === textHandoff.after)),
@@ -666,7 +687,7 @@ function TestControls() {
 				"清理文字浮层和全屏信息隐藏状态",
 			);
 			check(
-				textAppearance(info(), false) === textAppearance(fullInfo(), false) &&
+				matchingTextAppearance() &&
 					getComputedStyle(info()).fontSize === "16px",
 				"中途反向后文字仍与全屏统一",
 			);
@@ -750,7 +771,6 @@ function TestControls() {
 				page().inert && document.activeElement === button(),
 				"Escape 收起并恢复焦点",
 			);
-			store.set(musicPlayingAtom, playing);
 			setResult(
 				JSON.stringify(
 					{
@@ -767,7 +787,16 @@ function TestControls() {
 		} catch (error) {
 			setResult(JSON.stringify({ failed: String(error), checks }, null, 2));
 		} finally {
+			restoreHandoffs();
 			releaseVideoWait?.();
+			flushSync(() => {
+				store.set(isLyricPageOpenedAtom, false);
+				store.set(musicCoverAtom, original.cover);
+				store.set(musicPlayingAtom, original.playing);
+				store.set(hideLyricViewAtom, original.hideLyric);
+				store.set(verticalCoverLayoutAtom, original.coverLayout);
+				setRunning(false);
+			});
 		}
 	};
 	return (
@@ -783,95 +812,97 @@ function TestControls() {
 				maxWidth: "40vw",
 			}}
 		>
-			<button type="button" onClick={run}>
-				运行检查
-			</button>
-			<button
-				type="button"
-				onClick={async () => {
-					const url = videoUrl || (await makeVideo());
-					setVideoUrl(url);
-					store.set(musicCoverAtom, url);
-					store.set(musicCoverIsVideoAtom, true);
-				}}
-			>
-				视频封面
-			</button>
-			<button
-				type="button"
-				onClick={() => {
-					store.set(hideLyricViewAtom, true);
-					store.set(
-						verticalCoverLayoutAtom,
-						VerticalCoverLayout.ForceImmersive,
-					);
-					store.set(musicPlayingAtom, false);
-				}}
-			>
-				暂停沉浸布局
-			</button>
-			<button
-				type="button"
-				onClick={() => setChangeDuringTransition(!changeDuringTransition)}
-			>
-				中途变更{changeDuringTransition ? "：开" : "：关"}
-			</button>
-			<button
-				type="button"
-				onClick={() =>
-					store.set(isLyricPageOpenedAtom, !store.get(isLyricPageOpenedAtom))
-				}
-			>
-				切换
-			</button>
-			<button
-				type="button"
-				onClick={() =>
-					store.set(
-						musicCoverAtom,
-						store.get(musicCoverAtom) === covers[0] ? covers[1] : covers[0],
-					)
-				}
-			>
-				换封面
-			</button>
-			<button
-				type="button"
-				onClick={() =>
-					store.set(hideLyricViewAtom, !store.get(hideLyricViewAtom))
-				}
-			>
-				切换歌词布局
-			</button>
-			<button
-				type="button"
-				onClick={() => {
-					store.set(
-						musicNameAtom,
-						"沿着夜色走过漫长街道 — A Long Song Title for the Straight Transition",
-					);
-					store.set(musicArtistsAtom, [
-						{ name: "Transition Study", id: "test" },
-						{ name: "Night Ensemble", id: "test-2" },
-					]);
-				}}
-			>
-				长歌曲信息
-			</button>
-			<button
-				type="button"
-				onClick={() => {
-					store.set(musicNameAtom, "创世烟火");
-					store.set(musicArtistsAtom, [
-						{ name: "哔栗", id: "artist-1" },
-						{ name: "鸣米", id: "artist-2" },
-						{ name: "第三位歌手", id: "artist-3" },
-					]);
-					store.set(lyricFontFamilyAtom, "Georgia, serif");
-				}}
-			>
-				多人及自定义字体
-			</button>
+			<fieldset disabled={running} style={{ display: "contents" }}>
+				<button type="button" onClick={run}>
+					运行检查
+				</button>
+				<button
+					type="button"
+					onClick={async () => {
+						const url = videoUrl || (await makeVideo());
+						setVideoUrl(url);
+						store.set(musicCoverAtom, url);
+						store.set(musicCoverIsVideoAtom, true);
+					}}
+				>
+					视频封面
+				</button>
+				<button
+					type="button"
+					onClick={() => {
+						store.set(hideLyricViewAtom, true);
+						store.set(
+							verticalCoverLayoutAtom,
+							VerticalCoverLayout.ForceImmersive,
+						);
+						store.set(musicPlayingAtom, false);
+					}}
+				>
+					暂停沉浸布局
+				</button>
+				<button
+					type="button"
+					onClick={() => setChangeDuringTransition(!changeDuringTransition)}
+				>
+					中途变更{changeDuringTransition ? "：开" : "：关"}
+				</button>
+				<button
+					type="button"
+					onClick={() =>
+						store.set(isLyricPageOpenedAtom, !store.get(isLyricPageOpenedAtom))
+					}
+				>
+					切换
+				</button>
+				<button
+					type="button"
+					onClick={() =>
+						store.set(
+							musicCoverAtom,
+							store.get(musicCoverAtom) === covers[0] ? covers[1] : covers[0],
+						)
+					}
+				>
+					换封面
+				</button>
+				<button
+					type="button"
+					onClick={() =>
+						store.set(hideLyricViewAtom, !store.get(hideLyricViewAtom))
+					}
+				>
+					切换歌词布局
+				</button>
+				<button
+					type="button"
+					onClick={() => {
+						store.set(
+							musicNameAtom,
+							"沿着夜色走过漫长街道 — A Long Song Title for the Straight Transition",
+						);
+						store.set(musicArtistsAtom, [
+							{ name: "Transition Study", id: "test" },
+							{ name: "Night Ensemble", id: "test-2" },
+						]);
+					}}
+				>
+					长歌曲信息
+				</button>
+				<button
+					type="button"
+					onClick={() => {
+						store.set(musicNameAtom, "创世烟火");
+						store.set(musicArtistsAtom, [
+							{ name: "哔栗", id: "artist-1" },
+							{ name: "鸣米", id: "artist-2" },
+							{ name: "第三位歌手", id: "artist-3" },
+						]);
+						store.set(lyricFontFamilyAtom, "Georgia, serif");
+					}}
+				>
+					多人及自定义字体
+				</button>
+			</fieldset>
 			<pre
 				data-testid="results"
 				style={{
