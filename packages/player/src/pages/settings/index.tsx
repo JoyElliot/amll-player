@@ -272,7 +272,8 @@ export const Component: FC = () => {
 				top: "var(--space-8)",
 				left: 0,
 				right: 0,
-				bottom: "80px",
+				// AppContainer already reserves the bottom player's height.
+				bottom: 0,
 				zIndex: 1000,
 			}}
 		>
