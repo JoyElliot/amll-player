@@ -29,7 +29,6 @@ export const AMLLWrapper: FC = () => {
 		coverRef,
 		videoRef,
 		coverFrameRef,
-		fullInfoRef,
 		collapseButtonRef,
 		opened: isLyricPageOpened,
 	} = usePlaybackPresentation();
@@ -91,7 +90,6 @@ export const AMLLWrapper: FC = () => {
 								style={{ width: "100%", height: "100%" }}
 								bottomLineSlot={<BottomLyricInfo />}
 								coverFrameRef={coverFrameRef}
-								musicInfoProps={{ ref: fullInfoRef, id: "amll-full-info" }}
 								coverProps={{
 									id: "amll-player-cover",
 									ref: coverRef,
