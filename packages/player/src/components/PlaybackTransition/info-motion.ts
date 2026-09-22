@@ -5,8 +5,6 @@ export type InfoPose = {
 	top: number;
 	width: number;
 	height: number;
-	fontSize: number;
-	lineHeight: number;
 };
 
 export type Animate = (
@@ -29,14 +27,11 @@ export function createInfoMotion(
 ) {
 	const measure = (node: HTMLElement, full = false): InfoPose => {
 		const rect = node.getBoundingClientRect();
-		const style = getComputedStyle(node);
 		return {
 			left: rect.left,
 			top: rect.top - (full ? page.getBoundingClientRect().top : 0),
 			width: rect.width,
 			height: rect.height,
-			fontSize: Number.parseFloat(style.fontSize),
-			lineHeight: Number.parseFloat(style.lineHeight),
 		};
 	};
 	const compact = () => measure(slot);
@@ -56,16 +51,6 @@ export function createInfoMotion(
 	const owner = destination.parentElement;
 	const previousOwner = owner?.getAttribute("data-player-info-motion");
 	owner?.setAttribute("data-player-info-motion", "");
-	const nameStyle = getComputedStyle(fullName);
-	const artist = source.children[1];
-	const fullArtist = destination.children[1];
-	const nameWeight = Number.parseFloat(nameStyle.fontWeight);
-	const nameOpacity = Number.parseFloat(nameStyle.opacity);
-	const letterSpacing = Number.parseFloat(nameStyle.letterSpacing) || 0;
-	const artistOpacity =
-		artist && fullArtist
-			? Number.parseFloat(getComputedStyle(fullArtist).opacity)
-			: 0;
 	const start = previous ?? (opening ? compact() : full());
 	const target = opening ? full() : compact();
 	const visibility = destination.style.visibility;
@@ -77,7 +62,7 @@ export function createInfoMotion(
 	source.style.top = "0px";
 
 	return {
-		play(animate: Animate, ease: (t: number) => number, startProgress: number) {
+		play(animate: Animate, ease: (t: number) => number) {
 			const frames: Keyframe[] = [];
 			for (let i = 0; i <= 60; i++) {
 				const elapsed = i / 60;
@@ -93,32 +78,9 @@ export function createInfoMotion(
 					transform: `translate(${mix(start.left, target.left, horizontal)}px, ${mix(start.top, target.top, vertical)}px)`,
 					width: `${mix(start.width, target.width, horizontal)}px`,
 					height: `${mix(start.height, target.height, horizontal)}px`,
-					fontSize: `${mix(start.fontSize, target.fontSize, horizontal)}px`,
-					lineHeight: `${mix(start.lineHeight, target.lineHeight, horizontal)}px`,
 				});
 			}
 			animations.push(animate(source, frames, { easing: "linear" }));
-			const endProgress = opening ? 1 : 0;
-			animations.push(
-				animate(
-					name,
-					[startProgress, endProgress].map((p) => ({
-						fontWeight: mix(400, nameWeight, p),
-						opacity: mix(1, nameOpacity, p),
-						letterSpacing: `${letterSpacing * p}px`,
-					})),
-				),
-			);
-			if (artist)
-				animations.push(
-					animate(
-						artist,
-						[startProgress, endProgress].map((p) => ({
-							opacity: mix(1, artistOpacity, p),
-							letterSpacing: `${letterSpacing * p}px`,
-						})),
-					),
-				);
 		},
 		capture: () => measure(source),
 		readTarget: () => (opening ? full() : compact()),

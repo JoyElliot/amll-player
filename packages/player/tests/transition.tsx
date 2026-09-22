@@ -4,6 +4,7 @@ import {
 	hideLyricViewAtom,
 	isLyricPageOpenedAtom,
 	lyricBackgroundRendererAtom,
+	lyricFontFamilyAtom,
 	musicArtistsAtom,
 	musicCoverAtom,
 	musicCoverIsVideoAtom,
@@ -147,6 +148,25 @@ function TestControls() {
 		const bar = () => document.getElementById("amll-now-playing-bar")!;
 		const info = () => document.getElementById("amll-compact-info")!;
 		const fullInfo = () => document.getElementById("amll-full-info")!;
+		const textAppearance = (root: HTMLElement) =>
+			JSON.stringify(
+				[...root.children].map((row) => {
+					const style = getComputedStyle(row);
+					return {
+						text: row.textContent,
+						fontFamily: style.fontFamily,
+						fontSize: style.fontSize,
+						fontWeight: style.fontWeight,
+						lineHeight: style.lineHeight,
+						letterSpacing: style.letterSpacing,
+						opacity: style.opacity,
+						color: style.color,
+						separators: [...row.querySelectorAll("a")].map(
+							(artist) => getComputedStyle(artist, "::after").content,
+						),
+					};
+				}),
+			);
 		type Point = { left: number; top: number };
 		let path: { start: Point; end: Point; linear?: boolean } | undefined;
 		let pathError = 0;
@@ -203,6 +223,10 @@ function TestControls() {
 			setOpen(false);
 			await settle();
 			check(page().inert, "关闭页面不可交互");
+			check(
+				textAppearance(info()) === textAppearance(fullInfo()),
+				"底栏和全屏使用相同字体样式与歌手分隔",
+			);
 			const closedBeforeFocus = sheet().getBoundingClientRect();
 			button().scrollIntoView({ block: "center", inline: "nearest" });
 			check(
@@ -257,6 +281,7 @@ function TestControls() {
 			}
 			let handoff: { before: DOMRect; after: DOMRect } | undefined;
 			let infoHandoff: { before: DOMRect; after: DOMRect } | undefined;
+			let textHandoff: { before: string; after: string } | undefined;
 			let openDuration = 0;
 			let closeDuration = 0;
 			const nativeInfo = info();
@@ -264,9 +289,14 @@ function TestControls() {
 			nativeInfo.hidePopover = () => {
 				openDuration = performance.now() - openedAt;
 				const before = nativeInfo.getBoundingClientRect();
+				const textBefore = textAppearance(nativeInfo);
 				hideInfo.call(nativeInfo);
 				queueMicrotask(() => {
 					infoHandoff = { before, after: fullInfo().getBoundingClientRect() };
+					textHandoff = {
+						before: textBefore,
+						after: textAppearance(fullInfo()),
+					};
 				});
 			};
 			const hidePopover = nativeCover.hidePopover;
@@ -279,6 +309,10 @@ function TestControls() {
 			};
 			if (!reduced) {
 				await settle(80);
+				check(
+					textAppearance(info()) === textAppearance(fullInfo()),
+					"展开途中字体和歌手分隔保持全屏样式",
+				);
 				const movingSheet = sheet().getBoundingClientRect();
 				const movingCover = nativeCover.getBoundingClientRect();
 				const movingInfo = info().getBoundingClientRect();
@@ -389,6 +423,11 @@ function TestControls() {
 				"展开后原封面原位恢复",
 			);
 			check(page().dataset.phase === "open", "展开终态完成");
+			if (!reduced)
+				check(
+					!!textHandoff && textHandoff.before === textHandoff.after,
+					`展开交接前后文字样式和分隔不跳变${textHandoff && textHandoff.before !== textHandoff.after ? JSON.stringify(textHandoff) : ""}`,
+				);
 			const fullSheet = sheet().getBoundingClientRect();
 			check(
 				Math.abs(fullSheet.top) < 1 &&
@@ -442,7 +481,11 @@ function TestControls() {
 			const closedAt = performance.now();
 			nativeInfo.hidePopover = () => {
 				closeDuration = performance.now() - closedAt;
+				const before = textAppearance(nativeInfo);
 				hideInfo.call(nativeInfo);
+				queueMicrotask(() => {
+					textHandoff = { before, after: textAppearance(nativeInfo) };
+				});
 			};
 			flushSync(() =>
 				document
@@ -457,6 +500,10 @@ function TestControls() {
 			if (!reduced) {
 				await settle(80);
 				const returningInfo = info().getBoundingClientRect();
+				check(
+					textAppearance(info()) === textAppearance(fullInfo()),
+					"收起途中字体和歌手分隔保持全屏样式",
+				);
 				const deltaX = path.end.left - path.start.left;
 				const deltaY = path.end.top - path.start.top;
 				const horizontalProgress =
@@ -523,6 +570,12 @@ function TestControls() {
 			}
 			path = undefined;
 			check(
+				textAppearance(info()) === textAppearance(fullInfo()) &&
+					(reduced ||
+						(!!textHandoff && textHandoff.before === textHandoff.after)),
+				"收起交接前后文字样式和分隔不跳变",
+			);
+			check(
 				page().dataset.phase === "closed" && page().inert,
 				"收起终态与交互一致",
 			);
@@ -576,6 +629,10 @@ function TestControls() {
 					!info().style.left &&
 					!fullInfo().style.visibility,
 				"清理文字浮层和全屏信息隐藏状态",
+			);
+			check(
+				textAppearance(info()) === textAppearance(fullInfo()),
+				"中途反向后文字仍与全屏统一",
 			);
 			if (nativeVideo)
 				check(
@@ -764,6 +821,20 @@ function TestControls() {
 				}}
 			>
 				长歌曲信息
+			</button>
+			<button
+				type="button"
+				onClick={() => {
+					store.set(musicNameAtom, "创世烟火");
+					store.set(musicArtistsAtom, [
+						{ name: "哔栗", id: "artist-1" },
+						{ name: "鸣米", id: "artist-2" },
+						{ name: "第三位歌手", id: "artist-3" },
+					]);
+					store.set(lyricFontFamilyAtom, "Georgia, serif");
+				}}
+			>
+				多人及自定义字体
 			</button>
 			<pre
 				data-testid="results"

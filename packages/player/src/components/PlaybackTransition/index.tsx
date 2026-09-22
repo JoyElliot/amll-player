@@ -174,6 +174,12 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 		let cancelVideoHandoff: (() => void) | undefined;
 
 		const measurePage = () => {
+			// Share the active layout's typography instead of morphing it at handoff.
+			if (fullInfo)
+				app.style.setProperty(
+					"--player-info-font-size",
+					getComputedStyle(fullInfo).fontSize,
+				);
 			const compactHeight = bar.getBoundingClientRect().height + 1;
 			app.style.setProperty("--player-compact-height", `${compactHeight}px`);
 			const barTop = window.innerHeight - compactHeight;
@@ -424,7 +430,7 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 					opened,
 					displayedInfo.current,
 				);
-				infoMotion?.play(animate, sheetEase, startProgress);
+				infoMotion?.play(animate, sheetEase);
 			}
 			const positions = [startProgress, target];
 			master = animate(

@@ -55,6 +55,9 @@
 }
 
 .metadataSlot {
+	/* Match MusicInfo before, during and after the shared-text handoff. */
+	font-size: var(--player-info-font-size, max(2vh, 1em));
+	line-height: 1.25;
 	height: 2lh;
 	width: 100%;
 }
@@ -73,19 +76,6 @@
 	max-width: none;
 	max-height: none;
 	transform-origin: top left;
-
-	& > :first-child {
-		font-weight: var(--player-info-name-weight);
-		opacity: var(--player-info-name-opacity);
-	}
-
-	& > :last-child {
-		opacity: var(--player-info-artist-opacity);
-	}
-
-	& > * {
-		letter-spacing: var(--player-info-letter-spacing);
-	}
 
 	&::backdrop {
 		background: transparent;

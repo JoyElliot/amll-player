@@ -1,7 +1,11 @@
 import {
 	Cover,
 	isLyricPageOpenedAtom,
+	lyricFontFamilyAtom,
+	lyricFontWeightAtom,
+	lyricLetterSpacingAtom,
 	MediaButton,
+	MusicInfo,
 	musicArtistsAtom,
 	musicCoverAtom,
 	musicCoverIsVideoAtom,
@@ -10,7 +14,6 @@ import {
 	onPlayOrResumeAtom,
 	onRequestNextSongAtom,
 	onRequestPrevSongAtom,
-	TextMarquee,
 } from "@applemusic-like-lyrics/react-full";
 import lyricIcon from "@iconify/icons-ic/round-lyrics";
 import { Icon } from "@iconify/react";
@@ -52,6 +55,9 @@ export const NowPlayingBar: FC = () => {
 	const hideNowPlayingBar = useAtomValue(hideNowPlayingBarAtom);
 	const musicName = useAtomValue(musicNameAtom);
 	const musicArtists = useAtomValue(musicArtistsAtom);
+	const fontFamily = useAtomValue(lyricFontFamilyAtom);
+	const fontWeight = useAtomValue(lyricFontWeightAtom);
+	const letterSpacing = useAtomValue(lyricLetterSpacingAtom);
 	const musicPlaying = useAtomValue(musicPlayingAtom);
 	const musicCover = useAtomValue(musicCoverAtom);
 	const musicCoverIsVideo = useAtomValue(musicCoverIsVideoAtom);
@@ -160,17 +166,26 @@ export const NowPlayingBar: FC = () => {
 							textWrap: "nowrap",
 						}}
 					>
-						<div ref={compactInfoSlotRef} className={styles.metadataSlot}>
-							<div
-								ref={compactInfoRef}
-								className={styles.metadata}
-								id="amll-compact-info"
-							>
-								<TextMarquee>{musicName}</TextMarquee>
-								<TextMarquee>
-									{musicArtists.map((v) => v.name).join(", ")}
-								</TextMarquee>
-							</div>
+						<div
+							ref={compactInfoSlotRef}
+							className={styles.metadataSlot}
+							style={{
+								fontFamily: fontFamily || undefined,
+								fontWeight: fontWeight || undefined,
+								letterSpacing: letterSpacing || undefined,
+							}}
+						>
+							<MusicInfo
+								name={musicName}
+								artists={musicArtists.map((artist) => artist.name)}
+								style={{ fontSize: "inherit" }}
+								showMenuButton={false}
+								infoProps={{
+									ref: compactInfoRef,
+									className: styles.metadata,
+									id: "amll-compact-info",
+								}}
+							/>
 						</div>
 					</Flex>
 				</Flex>
