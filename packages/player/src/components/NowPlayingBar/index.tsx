@@ -1,8 +1,10 @@
 import {
+	Cover,
 	isLyricPageOpenedAtom,
 	MediaButton,
 	musicArtistsAtom,
 	musicCoverAtom,
+	musicCoverIsVideoAtom,
 	musicNameAtom,
 	musicPlayingAtom,
 	onPlayOrResumeAtom,
@@ -22,7 +24,8 @@ import {
 import { Flex, IconButton } from "@radix-ui/themes";
 import classNames from "classnames";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { type FC, useLayoutEffect, useRef } from "react";
+import { type FC, useLayoutEffect } from "react";
+import { useTranslation } from "react-i18next";
 import IconForward from "../../assets/icon_forward.svg?react";
 import IconPause from "../../assets/icon_pause.svg?react";
 import IconPlay from "../../assets/icon_play.svg?react";
@@ -32,22 +35,29 @@ import {
 	playlistCardOpenedAtom,
 } from "../../states/appAtoms.ts";
 import { NowPlaylistCard } from "../NowPlaylistCard/index.tsx";
+import { usePlaybackPresentation } from "../PlaybackTransition/index.tsx";
 import styles from "./index.module.css";
 
 export const NowPlayingBar: FC = () => {
+	const { t } = useTranslation();
+	const {
+		barRef: playbarRef,
+		compactCoverRef,
+		compactVideoRef,
+		openButtonRef,
+	} = usePlaybackPresentation();
 	const hideNowPlayingBar = useAtomValue(hideNowPlayingBarAtom);
 	const musicName = useAtomValue(musicNameAtom);
 	const musicArtists = useAtomValue(musicArtistsAtom);
 	const musicPlaying = useAtomValue(musicPlayingAtom);
 	const musicCover = useAtomValue(musicCoverAtom);
+	const musicCoverIsVideo = useAtomValue(musicCoverIsVideoAtom);
 	const [playlistOpened, setPlaylistOpened] = useAtom(playlistCardOpenedAtom);
 	const setLyricPageOpened = useSetAtom(isLyricPageOpenedAtom);
 
 	const onPlayOrResume = useAtomValue(onPlayOrResumeAtom).onEmit;
 	const onRequestPrevSong = useAtomValue(onRequestPrevSongAtom).onEmit;
 	const onRequestNextSong = useAtomValue(onRequestNextSongAtom).onEmit;
-
-	const playbarRef = useRef<HTMLDivElement>(null);
 
 	useLayoutEffect(() => {
 		const playbarEl = playbarRef.current;
@@ -67,7 +77,7 @@ export const NowPlayingBar: FC = () => {
 			window.removeEventListener("resize", updateSafeBound);
 			observer.disconnect();
 		};
-	}, []);
+	}, [playbarRef]);
 
 	return (
 		<>
@@ -107,11 +117,20 @@ export const NowPlayingBar: FC = () => {
 					<button
 						className={styles.coverButton}
 						type="button"
-						style={{
-							backgroundImage: `url(${musicCover})`,
-						}}
+						ref={openButtonRef}
+						aria-label={t("amll.openPlayer", "展开播放页")}
+						aria-controls="amll-lyric-player-wrapper"
 						onClick={() => setLyricPageOpened(true)}
 					>
+						<div ref={compactCoverRef} className={styles.coverSurface}>
+							<Cover
+								coverUrl={musicCover}
+								coverIsVideo={musicCoverIsVideo}
+								coverVideoPaused
+								videoRef={compactVideoRef}
+								className={styles.compactCover}
+							/>
+						</div>
 						<div className={styles.lyricIconButton}>
 							<Icon width={34} icon={lyricIcon} className="icon" />
 						</div>

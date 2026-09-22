@@ -12,26 +12,7 @@
 	--color-panel-solid: var(--color-panel-translucent);
 }
 
-.container {
-	transition: scale 0.5s cubic-bezier(0.25, 1, 0.5, 1);
-	scale: 1;
-	box-sizing: border-box;
-	height: 100vh;
-	overflow-y: auto;
-}
-
-.body.amllOpened {
-	&::after {
-		opacity: 0.75;
-	}
-
-	.container {
-		scale: 0.95;
-	}
-}
-
 .body::after {
-	transition: opacity 0.5s cubic-bezier(0.25, 1, 0.5, 1);
 	content: "";
 	display: block;
 	position: fixed;
@@ -40,6 +21,6 @@
 	width: 100vw;
 	height: 100vh;
 	pointer-events: none;
-	opacity: 0;
-	/* background-color: #000; */
+	opacity: calc(var(--player-open-progress, 0) * 0.35);
+	background-color: #000;
 }
