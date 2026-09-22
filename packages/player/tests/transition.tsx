@@ -282,6 +282,16 @@ function TestControls() {
 					(closedSheet.top - movingSheet.top) / closedSheet.top < 0.47,
 					"起步曲线放缓，未改变总时长",
 				);
+				const textProgress =
+					((movingInfo.left - sourceInfoRect.left) * deltaX +
+						(movingInfo.top - sourceInfoRect.top) * deltaY) /
+					(deltaX * deltaX + deltaY * deltaY);
+				const sheetProgress =
+					(closedSheet.top - movingSheet.top) / closedSheet.top;
+				check(
+					textProgress > 0 && textProgress < sheetProgress * 0.65,
+					"展开时文字起步慢于封面，给封面先上移的空间",
+				);
 				check(
 					movingSheet.top > 0 && movingSheet.top < closedSheet.top,
 					"卡片上边界连续上移",
@@ -306,7 +316,7 @@ function TestControls() {
 								new DOMMatrixReadOnly(getComputedStyle(node).transform).m42 <
 								-20,
 						) && Number(getComputedStyle(bar()).opacity) < 0.3,
-					"展开初段可见文字和控件上浮并淡出",
+					"展开初段底栏按钮上浮并淡出",
 				);
 			}
 			if (changeDuringTransition) {
@@ -418,7 +428,7 @@ function TestControls() {
 								new DOMMatrixReadOnly(getComputedStyle(node).transform).m42 >
 								-20,
 						),
-					"收起后段底栏文字和按钮下拉显现",
+					"收起后段底栏按钮下拉显现",
 				);
 			}
 			await settle();

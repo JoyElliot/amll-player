@@ -62,13 +62,15 @@ export function createInfoMotion(
 	return {
 		paint(fraction: number, progress: number) {
 			const target = opening ? full() : compact();
+			// Let the cover lift first; keep the text on its line and finish together.
+			const travel = opening ? fraction * fraction : fraction;
 			current = {
-				left: mix(start.left, target.left, fraction),
-				top: mix(start.top, target.top, fraction),
-				width: mix(start.width, target.width, fraction),
-				height: mix(start.height, target.height, fraction),
-				fontSize: mix(start.fontSize, target.fontSize, fraction),
-				lineHeight: mix(start.lineHeight, target.lineHeight, fraction),
+				left: mix(start.left, target.left, travel),
+				top: mix(start.top, target.top, travel),
+				width: mix(start.width, target.width, travel),
+				height: mix(start.height, target.height, travel),
+				fontSize: mix(start.fontSize, target.fontSize, travel),
+				lineHeight: mix(start.lineHeight, target.lineHeight, travel),
 			};
 			Object.assign(source.style, {
 				left: `${current.left}px`,
