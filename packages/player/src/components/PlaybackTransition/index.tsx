@@ -3,6 +3,7 @@ import {
 	musicCoverAtom,
 	musicCoverIsVideoAtom,
 } from "@applemusic-like-lyrics/react-full";
+import { cubicBezier } from "framer-motion";
 import { useAtomValue } from "jotai";
 import {
 	createContext,
@@ -41,6 +42,7 @@ export function usePlaybackPresentation() {
 
 const mix = (from: number, to: number, progress: number) =>
 	from + (to - from) * progress;
+const sheetEase = cubicBezier(0.25, 1, 0.5, 1);
 const mixRect = (from: Rect, to: Rect, progress: number): Rect => ({
 	left: mix(from.left, to.left, progress),
 	top: mix(from.top, to.top, progress),
@@ -134,6 +136,7 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 		const app = appRef.current;
 		const bar = barRef.current;
 		const compact = compactCoverRef.current;
+		const compactButton = openButtonRef.current;
 		if (!app || !page || !bar || !compact) return;
 
 		const target = opened ? 1 : 0;
@@ -150,7 +153,9 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 		const paintPage = (value: number) => {
 			app.style.setProperty("--player-open-progress", `${value}`);
 			page.style.setProperty("--player-open-progress", `${value}`);
-			const barTop = bar.getBoundingClientRect().top;
+			const compactHeight = bar.getBoundingClientRect().height + 1;
+			app.style.setProperty("--player-compact-height", `${compactHeight}px`);
+			const barTop = window.innerHeight - compactHeight;
 			page.style.setProperty("--player-sheet-top", `${barTop}px`);
 			page.dataset.phase =
 				value === 0 && !opened ? "closed" : value === 1 ? "open" : "moving";
@@ -177,13 +182,15 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 			// Apply the native pose before re-enabling the Cover's own transitions.
 			cover.getBoundingClientRect();
 			cover.style.removeProperty("transition");
-			compact.style.removeProperty("visibility");
+			compactButton?.style.removeProperty("opacity");
 			promoted = false;
 		};
 
 		const finish = () => {
 			progress.current = target;
 			paintPage(target);
+			if (opened && document.activeElement === page)
+				collapseButton?.focus({ preventScroll: true });
 			const release = () => {
 				cancelVideoHandoff?.();
 				restoreCover();
@@ -260,7 +267,7 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 		if (!opened) videoRef.current?.pause();
 		cover.setAttribute("popover", "manual");
 		cover.showPopover();
-		compact.style.visibility = "hidden";
+		if (compactButton) compactButton.style.opacity = "0";
 		promoted = true;
 
 		const readTarget = (): Rect => {
@@ -269,7 +276,10 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 			// The anchor stays in layout while the real cover paints in the top layer.
 			return {
 				left: frame.left + (frame.width * (1 - nativeTransform.a)) / 2,
-				top: frame.top + (frame.height * (1 - nativeTransform.d)) / 2,
+				top:
+					frame.top -
+					page.getBoundingClientRect().top +
+					(frame.height * (1 - nativeTransform.d)) / 2,
 				width: frame.width * nativeTransform.a,
 				height: frame.height * nativeTransform.d,
 			};
@@ -311,9 +321,11 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 		};
 
 		const tick = (now: number) => {
-			const duration = 460 * Math.max(0.35, Math.abs(target - startProgress));
+			// Keep the geometry aligned with the bar's delayed 320–500ms reveal,
+			// including an interrupted transition that starts between endpoints.
+			const duration = 500;
 			const elapsed = Math.min(1, (now - startTime) / duration);
-			const eased = 1 - (1 - elapsed) ** 3;
+			const eased = sheetEase(elapsed);
 			progress.current = mix(startProgress, target, eased);
 			paint();
 			if (elapsed < 1) animationFrame = requestAnimationFrame(tick);
@@ -346,7 +358,16 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 			window.visualViewport?.removeEventListener("resize", resize);
 			restoreCover();
 		};
-	}, [opened, reducedMotion, page, cover, coverFrame, coverUrl, coverIsVideo]);
+	}, [
+		opened,
+		reducedMotion,
+		page,
+		cover,
+		coverFrame,
+		coverUrl,
+		coverIsVideo,
+		collapseButton,
+	]);
 
 	return (
 		<PresentationContext.Provider value={presentation}>

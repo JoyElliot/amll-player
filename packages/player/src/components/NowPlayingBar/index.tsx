@@ -45,6 +45,7 @@ export const NowPlayingBar: FC = () => {
 		compactCoverRef,
 		compactVideoRef,
 		openButtonRef,
+		opened,
 	} = usePlaybackPresentation();
 	const hideNowPlayingBar = useAtomValue(hideNowPlayingBarAtom);
 	const musicName = useAtomValue(musicNameAtom);
@@ -58,6 +59,10 @@ export const NowPlayingBar: FC = () => {
 	const onPlayOrResume = useAtomValue(onPlayOrResumeAtom).onEmit;
 	const onRequestPrevSong = useAtomValue(onRequestPrevSongAtom).onEmit;
 	const onRequestNextSong = useAtomValue(onRequestNextSongAtom).onEmit;
+
+	useLayoutEffect(() => {
+		if (opened) setPlaylistOpened(false);
+	}, [opened, setPlaylistOpened]);
 
 	useLayoutEffect(() => {
 		const playbarEl = playbarRef.current;
@@ -103,9 +108,16 @@ export const NowPlayingBar: FC = () => {
 				</Flex>
 			)}
 			<Flex
-				className={classNames(styles.playBar, hideNowPlayingBar && styles.hide)}
+				className={classNames(
+					styles.playBar,
+					hideNowPlayingBar && styles.hide,
+					opened && styles.expanded,
+				)}
+				id="amll-now-playing-bar"
 				overflow="hidden"
 				ref={playbarRef}
+				inert={opened}
+				aria-hidden={opened}
 			>
 				<Flex
 					direction="row"
@@ -136,6 +148,8 @@ export const NowPlayingBar: FC = () => {
 						</div>
 					</button>
 					<Flex
+						className={styles.departingContent}
+						data-player-reveal="metadata"
 						direction="column"
 						justify="center"
 						ml="4"
@@ -153,6 +167,8 @@ export const NowPlayingBar: FC = () => {
 					</Flex>
 				</Flex>
 				<Flex
+					className={styles.departingContent}
+					data-player-reveal="transport"
 					direction="row"
 					justify="center"
 					align="center"
@@ -210,6 +226,8 @@ export const NowPlayingBar: FC = () => {
 					</MediaButton>
 				</Flex>
 				<Flex
+					className={styles.departingContent}
+					data-player-reveal="actions"
 					direction="row"
 					justify="end"
 					align="center"

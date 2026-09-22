@@ -7,6 +7,7 @@ import {
 	musicArtistsAtom,
 	musicCoverAtom,
 	musicCoverIsVideoAtom,
+	musicLyricLinesAtom,
 	musicNameAtom,
 	musicPlayingAtom,
 	onPlayOrResumeAtom,
@@ -78,6 +79,24 @@ store.set(
 	"radial-gradient(at 20% 20%, #8b4e54, #17213c)",
 );
 store.set(musicPlayingAtom, true);
+store.set(
+	musicLyricLinesAtom,
+	[
+		"夜色慢慢铺开",
+		"让旋律陪着我们",
+		"越过安静的街道",
+		"向着有光的地方",
+		"把这一刻留下",
+	].map((word, index) => ({
+		words: [{ word, startTime: index * 5000, endTime: (index + 1) * 5000 }],
+		startTime: index * 5000,
+		endTime: (index + 1) * 5000,
+		translatedLyric: "",
+		romanLyric: "",
+		isBG: false,
+		isDuet: false,
+	})),
+);
 store.set(hideLyricViewAtom, false);
 store.set(verticalCoverLayoutAtom, VerticalCoverLayout.Auto);
 store.set(onPlayOrResumeAtom, {
@@ -87,27 +106,23 @@ store.set(onPlayOrResumeAtom, {
 function Surface() {
 	const { appRef, opened } = usePlaybackPresentation();
 	return (
-		<>
-			<div
-				ref={appRef}
-				className={styles.body}
-				inert={opened}
-				aria-hidden={opened}
+		<div ref={appRef} className={styles.body}>
+			<AppContainer
+				playbar={<NowPlayingBar />}
+				playbarExpanded={opened}
+				playbarExpandedContent={<AMLLWrapper />}
 			>
-				<AppContainer playbar={<NowPlayingBar />}>
-					<main style={{ padding: "8vh 10vw" }}>
-						<h1>播放页过渡验证</h1>
-						<p>
-							此页挂载真实底栏、AMLLWrapper、歌词库和过渡控制器，不连接音频服务。
-						</p>
-						<button type="button" id="outside-content-button">
-							可聚焦的内容按钮
-						</button>
-					</main>
-				</AppContainer>
-			</div>
-			<AMLLWrapper />
-		</>
+				<main style={{ padding: "8vh 10vw" }}>
+					<h1>播放页过渡验证</h1>
+					<p>
+						此页挂载真实底栏、AMLLWrapper、歌词库和过渡控制器，不连接音频服务。
+					</p>
+					<button type="button" id="outside-content-button">
+						可聚焦的内容按钮
+					</button>
+				</main>
+			</AppContainer>
+		</div>
 	);
 }
 
@@ -127,6 +142,9 @@ function TestControls() {
 			)!;
 		const page = () => document.getElementById("amll-lyric-player-wrapper")!;
 		const cover = () => document.getElementById("amll-player-cover")!;
+		const sheet = () => document.getElementById("amll-player-sheet")!;
+		const content = () => document.getElementById("amll-player-content")!;
+		const bar = () => document.getElementById("amll-now-playing-bar")!;
 		const settle = (ms = 650) =>
 			new Promise<void>((resolve) => {
 				const start = performance.now();
@@ -152,10 +170,19 @@ function TestControls() {
 			const nativeVideo = nativeCover.querySelector("video");
 			button().focus();
 			const sourceRect = button().getBoundingClientRect();
+			const closedSheet = sheet().getBoundingClientRect();
 			flushSync(() => button().click());
 			check(page().contains(document.activeElement), "展开后焦点进入播放页");
 			if (!reduced) {
 				check(nativeCover.matches(":popover-open"), "真实封面进入顶层");
+				check(
+					Math.abs(sheet().getBoundingClientRect().top - closedSheet.top) < 1,
+					"卡片从原底栏分隔线开始展开",
+				);
+				check(
+					getComputedStyle(button()).opacity === "0",
+					"移动封面时连同原按钮底色一起隐藏",
+				);
 				check(
 					near(nativeCover.getBoundingClientRect(), sourceRect),
 					"展开起点与底栏重合",
@@ -170,8 +197,39 @@ function TestControls() {
 					handoff = { before, after: nativeCover.getBoundingClientRect() };
 				});
 			};
+			if (!reduced) {
+				await settle(80);
+				const movingSheet = sheet().getBoundingClientRect();
+				const movingCover = nativeCover.getBoundingClientRect();
+				check(
+					movingSheet.top > 0 && movingSheet.top < closedSheet.top,
+					"卡片上边界连续上移",
+				);
+				check(
+					Math.abs(page().getBoundingClientRect().top - movingSheet.top) < 1 &&
+						Math.abs(content().getBoundingClientRect().top - movingSheet.top) <
+							1,
+					"歌词内容随同一张卡片上移而非原地裁切",
+				);
+				check(
+					movingCover.top >= movingSheet.top &&
+						movingCover.top < sourceRect.top &&
+						Math.abs(movingCover.width - sourceRect.width) > 0.1,
+					"中间帧封面从底栏位移缩放且保持在卡片内",
+				);
+				check(
+					[...bar().querySelectorAll<HTMLElement>("[data-player-reveal]")]
+						.filter((node) => node.getClientRects().length > 0)
+						.every(
+							(node) =>
+								new DOMMatrixReadOnly(getComputedStyle(node).transform).m42 <
+								-20,
+						) && Number(getComputedStyle(bar()).opacity) < 0.3,
+					"展开初段可见文字和控件上浮并淡出",
+				);
+			}
 			if (changeDuringTransition) {
-				await settle(90);
+				await settle(reduced ? 90 : 10);
 				flushSync(() => {
 					store.set(hideLyricViewAtom, true);
 					store.set(
@@ -188,6 +246,12 @@ function TestControls() {
 				"展开后原封面原位恢复",
 			);
 			check(page().dataset.phase === "open", "展开终态完成");
+			const fullSheet = sheet().getBoundingClientRect();
+			check(
+				Math.abs(fullSheet.top) < 1 &&
+					Math.abs(fullSheet.bottom - innerHeight) < 1,
+				"焦点移动后卡片仍覆盖整个视口",
+			);
 			if (!reduced)
 				check(
 					!!handoff && near(handoff.before, handoff.after),
@@ -216,6 +280,25 @@ function TestControls() {
 					near(nativeCover.getBoundingClientRect(), endRect),
 					"收起从当前全屏位置开始",
 				);
+			if (!reduced) {
+				await settle(160);
+				check(
+					Number(getComputedStyle(bar()).opacity) < 0.01,
+					"收起前段底栏控件保持隐藏",
+				);
+				await settle(240);
+				check(
+					Number(getComputedStyle(bar()).opacity) > 0.25 &&
+						[
+							...bar().querySelectorAll<HTMLElement>("[data-player-reveal]"),
+						].every(
+							(node) =>
+								new DOMMatrixReadOnly(getComputedStyle(node).transform).m42 >
+								-20,
+						),
+					"收起后段底栏文字和按钮下拉显现",
+				);
+			}
 			await settle();
 			check(
 				page().dataset.phase === "closed" && page().inert,

@@ -18,20 +18,52 @@
 }
 
 .playBar {
-	opacity: calc(1 - var(--player-open-progress, 0));
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	z-index: 2;
+	box-sizing: border-box;
+	width: 100%;
+	opacity: 1;
 	padding: var(--space-3);
 	padding-left: calc(var(--space-3) + env(safe-area-inset-left));
 	padding-right: calc(var(--space-3) + env(safe-area-inset-right));
 	padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom));
 	/* border-radius: var(--radius-4); */
-	transition: transform 0.2s ease;
+	transition: opacity 0.18s 0.32s cubic-bezier(0.22, 1, 0.36, 1);
 	margin: auto;
 	max-width: 800px;
+
+	&.expanded {
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+	}
 }
 
 .playBar > * {
 	min-width: 0;
 	overflow: hidden;
+}
+
+.departingContent {
+	transform: translateY(0);
+	transition: transform 0.18s 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.expanded .departingContent {
+	transform: translateY(-36px);
+	transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.playBar,
+	.playBar.expanded,
+	.departingContent,
+	.expanded .departingContent {
+		transition: none;
+	}
 }
 
 .coverButton {

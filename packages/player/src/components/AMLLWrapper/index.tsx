@@ -84,24 +84,27 @@ export const AMLLWrapper: FC = () => {
 							}
 						}}
 					>
-						<PrebuiltLyricPlayer
-							id="amll-lyric-player"
-							style={{ width: "100%", height: "100%" }}
-							bottomLineSlot={<BottomLyricInfo />}
-							coverFrameRef={coverFrameRef}
-							coverProps={{
-								id: "amll-player-cover",
-								ref: coverRef,
-								videoRef,
-								coverVideoPaused: !isLyricPageOpened,
-								className: sharedCoverClassName,
-							}}
-							controlThumbProps={{
-								buttonRef: collapseButtonRef,
-								buttonLabel: t("amll.closePlayer", "收起播放页"),
-								onClick: () => setLyricPageOpened(false),
-							}}
-						/>
+						<div className={styles.lyricContent} id="amll-player-content">
+							<PrebuiltLyricPlayer
+								id="amll-lyric-player"
+								style={{ width: "100%", height: "100%" }}
+								bottomLineSlot={<BottomLyricInfo />}
+								coverFrameRef={coverFrameRef}
+								coverProps={{
+									id: "amll-player-cover",
+									ref: coverRef,
+									videoRef,
+									coverVideoPaused: !isLyricPageOpened,
+									className: sharedCoverClassName,
+								}}
+								controlThumbProps={{
+									className: styles.controlThumb,
+									buttonRef: collapseButtonRef,
+									buttonLabel: t("amll.closePlayer", "收起播放页"),
+									onClick: () => setLyricPageOpened(false),
+								}}
+							/>
+						</div>
 						{cursorHidden && <div className={styles.cursorHiddenOverlay} />}
 					</div>
 				</ContextMenu.Trigger>

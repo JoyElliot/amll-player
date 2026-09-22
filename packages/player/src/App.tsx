@@ -38,21 +38,19 @@ const AMLLWrapper = lazy(() => import("./components/AMLLWrapper"));
 function PlayerSurface() {
 	const { appRef, opened: isLyricPageOpened } = usePlaybackPresentation();
 	return (
-		<>
-			<Box
-				ref={appRef}
-				className={styles.body}
-				inert={isLyricPageOpened}
-				aria-hidden={isLyricPageOpened}
+		<Box ref={appRef} className={styles.body}>
+			<AppContainer
+				playbar={<NowPlayingBar />}
+				playbarExpanded={isLyricPageOpened}
+				playbarExpandedContent={
+					<Suspense>
+						<AMLLWrapper />
+					</Suspense>
+				}
 			>
-				<AppContainer playbar={<NowPlayingBar />}>
-					<RouterProvider router={router} />
-				</AppContainer>
-			</Box>
-			<Suspense>
-				<AMLLWrapper />
-			</Suspense>
-		</>
+				<RouterProvider router={router} />
+			</AppContainer>
+		</Box>
 	);
 }
 
