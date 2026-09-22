@@ -16,6 +16,7 @@ import {
 	useState,
 } from "react";
 import styles from "./index.module.css";
+import { createInfoMotion, type InfoPose } from "./info-motion";
 
 type Rect = Pick<DOMRect, "left" | "top" | "width" | "height">;
 type Presentation = {
@@ -24,6 +25,9 @@ type Presentation = {
 	barRef: RefObject<HTMLDivElement | null>;
 	compactCoverRef: RefObject<HTMLDivElement | null>;
 	compactVideoRef: RefObject<HTMLVideoElement | null>;
+	compactInfoRef: RefObject<HTMLDivElement | null>;
+	compactInfoSlotRef: RefObject<HTMLDivElement | null>;
+	fullInfoRef: (node: HTMLDivElement | null) => void;
 	videoRef: RefObject<HTMLVideoElement | null>;
 	openButtonRef: RefObject<HTMLButtonElement | null>;
 	pageRef: (node: HTMLDivElement | null) => void;
@@ -59,6 +63,9 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 	const barRef = useRef<HTMLDivElement>(null);
 	const compactCoverRef = useRef<HTMLDivElement>(null);
 	const compactVideoRef = useRef<HTMLVideoElement>(null);
+	const compactInfoRef = useRef<HTMLDivElement>(null);
+	const compactInfoSlotRef = useRef<HTMLDivElement>(null);
+	const [fullInfo, setFullInfo] = useState<HTMLDivElement | null>(null);
 	const videoRef = useRef<HTMLVideoElement>(null);
 	const openButtonRef = useRef<HTMLButtonElement>(null);
 	const [page, setPage] = useState<HTMLDivElement | null>(null);
@@ -71,6 +78,7 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 	);
 	const progress = useRef(opened ? 1 : 0);
 	const displayedCover = useRef<Rect | null>(null);
+	const displayedInfo = useRef<InfoPose | null>(null);
 	const previousFocus = useRef<HTMLElement | null>(null);
 	const wasOpened = useRef(false);
 
@@ -81,6 +89,9 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 			barRef,
 			compactCoverRef,
 			compactVideoRef,
+			compactInfoRef,
+			compactInfoSlotRef,
+			fullInfoRef: setFullInfo,
 			videoRef,
 			openButtonRef,
 			pageRef: setPage,
@@ -147,6 +158,7 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 		let material: Animation | undefined;
 		let cancelVideoHandoff: (() => void) | undefined;
 		let promoted = false;
+		let infoMotion: ReturnType<typeof createInfoMotion>;
 		const nativeRect = cover?.getBoundingClientRect();
 		let nativeTransform = new DOMMatrixReadOnly();
 
@@ -189,6 +201,9 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 		const finish = () => {
 			progress.current = target;
 			paintPage(target);
+			infoMotion?.restore();
+			infoMotion = undefined;
+			displayedInfo.current = null;
 			if (opened && document.activeElement === page)
 				collapseButton?.focus({ preventScroll: true });
 			const release = () => {
@@ -269,6 +284,16 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 		cover.showPopover();
 		if (compactButton) compactButton.style.opacity = "0";
 		promoted = true;
+		if (compactInfoRef.current && compactInfoSlotRef.current && fullInfo) {
+			infoMotion = createInfoMotion(
+				compactInfoRef.current,
+				compactInfoSlotRef.current,
+				fullInfo,
+				page,
+				opened,
+				displayedInfo.current,
+			);
+		}
 
 		const readTarget = (): Rect => {
 			if (!opened) return compact.getBoundingClientRect();
@@ -300,6 +325,7 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 					? 1
 					: (value - startProgress) / (target - startProgress);
 			const rect = mixRect(startCover, readTarget(), fraction);
+			if (infoMotion) displayedInfo.current = infoMotion.paint(fraction, value);
 			displayedCover.current = rect;
 			Object.assign(cover.style, {
 				left: `${rect.left}px`,
@@ -336,6 +362,7 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 			startProgress = progress.current;
 			startCover = displayedCover.current;
 			startTime = performance.now();
+			infoMotion?.rebase();
 			refreshNativeStyle();
 			paint();
 		};
@@ -353,6 +380,7 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 		return () => {
 			cancelAnimationFrame(animationFrame);
 			cancelVideoHandoff?.();
+			infoMotion?.restore();
 			appearanceObserver.disconnect();
 			window.removeEventListener("resize", resize);
 			window.visualViewport?.removeEventListener("resize", resize);
@@ -367,6 +395,7 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 		coverUrl,
 		coverIsVideo,
 		collapseButton,
+		fullInfo,
 	]);
 
 	return (

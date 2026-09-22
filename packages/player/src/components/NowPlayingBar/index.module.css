@@ -52,6 +52,44 @@
 	transition: transform 0.18s 0.32s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+.metadataSlot {
+	height: 2lh;
+	width: 100%;
+}
+
+.metadata:popover-open {
+	position: fixed;
+	inset: auto;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: inherit;
+	overflow: hidden;
+	visibility: visible;
+	pointer-events: none;
+	max-width: none;
+	max-height: none;
+
+	& > :first-child {
+		font-weight: var(--player-info-name-weight);
+		opacity: var(--player-info-name-opacity);
+	}
+
+	& > :last-child {
+		opacity: var(--player-info-artist-opacity);
+	}
+
+	& > * {
+		letter-spacing: var(--player-info-letter-spacing);
+	}
+
+	&::backdrop {
+		background: transparent;
+		pointer-events: none;
+	}
+}
+
 .expanded .departingContent {
 	transform: translateY(-36px);
 	transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1);
@@ -79,6 +117,7 @@
 	overflow: hidden;
 	cursor: pointer;
 	border: none;
+	background-color: transparent;
 	background-position: center;
 	background-size: cover;
 	padding: 0;

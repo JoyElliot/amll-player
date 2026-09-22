@@ -53,7 +53,7 @@
 
 .presentation > .main {
 	transform: scale(calc(1 - var(--player-open-progress, 0) * 0.035));
-	transform-origin: center bottom;
+	transform-origin: center top;
 }
 
 .playbarSpace {

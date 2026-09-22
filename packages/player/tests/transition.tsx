@@ -145,13 +145,32 @@ function TestControls() {
 		const sheet = () => document.getElementById("amll-player-sheet")!;
 		const content = () => document.getElementById("amll-player-content")!;
 		const bar = () => document.getElementById("amll-now-playing-bar")!;
+		const info = () => document.getElementById("amll-compact-info")!;
+		const fullInfo = () => document.getElementById("amll-full-info")!;
+		let overlap = 0;
+		let motionSamples = 0;
 		const settle = (ms = 650) =>
 			new Promise<void>((resolve) => {
 				const start = performance.now();
-				const frame = () =>
-					performance.now() - start >= ms
-						? resolve()
-						: requestAnimationFrame(frame);
+				const frame = () => {
+					if (
+						info().matches(":popover-open") &&
+						cover().matches(":popover-open")
+					) {
+						const text = info().getBoundingClientRect();
+						const image = cover().getBoundingClientRect();
+						const width =
+							Math.min(text.right, image.right) -
+							Math.max(text.left, image.left);
+						const height =
+							Math.min(text.bottom, image.bottom) -
+							Math.max(text.top, image.top);
+						overlap = Math.max(overlap, Math.min(width, height));
+						motionSamples++;
+					}
+					if (performance.now() - start >= ms) resolve();
+					else requestAnimationFrame(frame);
+				};
 				requestAnimationFrame(frame);
 			});
 		const setOpen = (opened: boolean) =>
@@ -161,6 +180,7 @@ function TestControls() {
 				(key) => Math.abs(a[key as "left"] - b[key as "left"]) < 1,
 			);
 		const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+		let releaseVideoWait: (() => void) | undefined;
 		try {
 			setResult("运行中");
 			setOpen(false);
@@ -170,11 +190,21 @@ function TestControls() {
 			const nativeVideo = nativeCover.querySelector("video");
 			button().focus();
 			const sourceRect = button().getBoundingClientRect();
+			const sourceInfoRect = info().getBoundingClientRect();
+			const backdrop = document
+				.getElementById("outside-content-button")!
+				.closest("main")!.parentElement!;
+			const backdropRect = backdrop.getBoundingClientRect();
 			const closedSheet = sheet().getBoundingClientRect();
 			flushSync(() => button().click());
 			check(page().contains(document.activeElement), "展开后焦点进入播放页");
 			if (!reduced) {
 				check(nativeCover.matches(":popover-open"), "真实封面进入顶层");
+				check(
+					info().matches(":popover-open") &&
+						near(info().getBoundingClientRect(), sourceInfoRect),
+					"现有歌曲信息从底栏原位沿弧线出发",
+				);
 				check(
 					Math.abs(sheet().getBoundingClientRect().top - closedSheet.top) < 1,
 					"卡片从原底栏分隔线开始展开",
@@ -189,6 +219,16 @@ function TestControls() {
 				);
 			}
 			let handoff: { before: DOMRect; after: DOMRect } | undefined;
+			let infoHandoff: { before: DOMRect; after: DOMRect } | undefined;
+			const nativeInfo = info();
+			const hideInfo = nativeInfo.hidePopover;
+			nativeInfo.hidePopover = () => {
+				const before = nativeInfo.getBoundingClientRect();
+				hideInfo.call(nativeInfo);
+				queueMicrotask(() => {
+					infoHandoff = { before, after: fullInfo().getBoundingClientRect() };
+				});
+			};
 			const hidePopover = nativeCover.hidePopover;
 			nativeCover.hidePopover = () => {
 				const before = nativeCover.getBoundingClientRect();
@@ -201,6 +241,25 @@ function TestControls() {
 				await settle(80);
 				const movingSheet = sheet().getBoundingClientRect();
 				const movingCover = nativeCover.getBoundingClientRect();
+				const movingInfo = info().getBoundingClientRect();
+				const targetInfo = fullInfo().getBoundingClientRect();
+				const deltaX = targetInfo.left - sourceInfoRect.left;
+				const deltaY =
+					targetInfo.top -
+					page().getBoundingClientRect().top -
+					sourceInfoRect.top;
+				check(
+					Math.abs(backdrop.getBoundingClientRect().top - backdropRect.top) <
+						1 && backdrop.getBoundingClientRect().height < backdropRect.height,
+					"背景保持顶部锚点并向上收缩",
+				);
+				check(
+					Math.abs(deltaX) < 20 ||
+						Math.abs(deltaY) < 20 ||
+						(movingInfo.left - sourceInfoRect.left) / deltaX >
+							(movingInfo.top - sourceInfoRect.top) / deltaY + 0.05,
+					"歌曲信息沿先横移后上升的弧线移动",
+				);
 				check(
 					movingSheet.top > 0 && movingSheet.top < closedSheet.top,
 					"卡片上边界连续上移",
@@ -241,6 +300,25 @@ function TestControls() {
 			}
 			await settle();
 			nativeCover.hidePopover = hidePopover;
+			nativeInfo.hidePopover = hideInfo;
+			if (
+				!reduced &&
+				!changeDuringTransition &&
+				getComputedStyle(nativeCover.parentElement!).maskImage === "none"
+			)
+				check(
+					motionSamples > 5 && overlap < 1,
+					`展开弧线避开封面（重叠 ${overlap.toFixed(2)}px）`,
+				);
+			check(
+				document.querySelectorAll("#amll-full-info").length === 1,
+				"全屏歌曲信息仅暴露当前布局的锚点",
+			);
+			if (!reduced)
+				check(
+					!!infoHandoff && near(infoHandoff.before, infoHandoff.after),
+					`歌曲信息交接时几何连续${infoHandoff && !near(infoHandoff.before, infoHandoff.after) ? JSON.stringify(infoHandoff) : ""}`,
+				);
 			check(
 				cover() === nativeCover && !nativeCover.hasAttribute("popover"),
 				"展开后原封面原位恢复",
@@ -270,6 +348,29 @@ function TestControls() {
 			);
 			check(button().closest("[inert]") !== null, "展开时底栏不可聚焦或点击");
 			const endRect = nativeCover.getBoundingClientRect();
+			// Immersive layouts intentionally place text over the cover's faded edge.
+			const coverHasMask =
+				getComputedStyle(nativeCover.parentElement!).maskImage !== "none";
+			if (nativeVideo && !reduced) {
+				// Hold only the media-ready boundary so resize during handoff is deterministic.
+				const thumbnail = button().querySelector("video")!;
+				const descriptor = Object.getOwnPropertyDescriptor(
+					thumbnail,
+					"seeking",
+				);
+				Object.defineProperty(thumbnail, "seeking", {
+					configurable: true,
+					get: () => true,
+				});
+				releaseVideoWait = () => {
+					if (descriptor)
+						Object.defineProperty(thumbnail, "seeking", descriptor);
+					else Reflect.deleteProperty(thumbnail, "seeking");
+					thumbnail.dispatchEvent(new Event("seeked"));
+				};
+			}
+			overlap = 0;
+			motionSamples = 0;
 			flushSync(() =>
 				document
 					.querySelector<HTMLButtonElement>("[aria-label='收起播放页']")!
@@ -300,6 +401,19 @@ function TestControls() {
 				);
 			}
 			await settle();
+			if (releaseVideoWait) {
+				const waiting = nativeCover.matches(":popover-open");
+				window.dispatchEvent(new Event("resize"));
+				const textClean = !info().style.left && !info().style.fontSize;
+				releaseVideoWait();
+				releaseVideoWait = undefined;
+				check(waiting && textClean, "视频交接等待中 resize 不恢复文字临时样式");
+			}
+			if (!reduced && !coverHasMask)
+				check(
+					motionSamples > 5 && overlap < 1,
+					`收起弧线避开封面（重叠 ${overlap.toFixed(2)}px）`,
+				);
 			check(
 				page().dataset.phase === "closed" && page().inert,
 				"收起终态与交互一致",
@@ -312,11 +426,17 @@ function TestControls() {
 			setOpen(true);
 			await settle(90);
 			const beforeReverse = cover().getBoundingClientRect();
+			const infoBeforeReverse = info().getBoundingClientRect();
 			setOpen(false);
 			if (!reduced)
 				check(
 					near(cover().getBoundingClientRect(), beforeReverse),
 					"中途反向保持当前位置",
+				);
+			if (!reduced)
+				check(
+					near(info().getBoundingClientRect(), infoBeforeReverse),
+					"歌曲信息中途反向不跳位",
 				);
 			await settle(60);
 			const beforeReopen = cover().getBoundingClientRect();
@@ -337,6 +457,12 @@ function TestControls() {
 			check(
 				!nativeCover.hasAttribute("style") || !nativeCover.style.left,
 				"清理临时几何样式",
+			);
+			check(
+				!info().hasAttribute("popover") &&
+					!info().style.left &&
+					!fullInfo().style.visibility,
+				"清理文字浮层和全屏信息隐藏状态",
 			);
 			if (nativeVideo)
 				check(
@@ -434,6 +560,8 @@ function TestControls() {
 			);
 		} catch (error) {
 			setResult(JSON.stringify({ failed: String(error), checks }, null, 2));
+		} finally {
+			releaseVideoWait?.();
 		}
 	};
 	return (
@@ -508,6 +636,21 @@ function TestControls() {
 				}
 			>
 				切换歌词布局
+			</button>
+			<button
+				type="button"
+				onClick={() => {
+					store.set(
+						musicNameAtom,
+						"沿着夜色走过漫长街道 — A Long Song Title for the Curved Transition",
+					);
+					store.set(musicArtistsAtom, [
+						{ name: "Transition Study", id: "test" },
+						{ name: "Night Ensemble", id: "test-2" },
+					]);
+				}}
+			>
+				长歌曲信息
 			</button>
 			<pre
 				data-testid="results"
