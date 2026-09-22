@@ -6,18 +6,22 @@
 	grid-template-rows: 1fr 0fr;
 	height: 100%;
 	width: 100%;
-	overflow: hidden;
+	/* The translated sheet extends below the viewport; never make it scrollable. */
+	overflow: clip;
 	contain: paint;
+}
 
-	&.presentation::before {
-		content: "";
-		position: absolute;
-		inset: 0;
-		z-index: 1;
-		background: #000;
-		opacity: calc(var(--player-open-progress, 0) * 0.35);
-		pointer-events: none;
-	}
+.dimmer {
+	position: absolute;
+	inset: 0;
+	z-index: 1;
+	background: #000;
+	opacity: 0;
+	pointer-events: none;
+}
+
+.expanded > .dimmer {
+	opacity: 0.35;
 }
 
 .sidebar {
@@ -52,8 +56,12 @@
 }
 
 .presentation > .main {
-	transform: scale(calc(1 - var(--player-open-progress, 0) * 0.035));
+	transform: scale(1);
 	transform-origin: center top;
+}
+
+.presentation.expanded > .main {
+	transform: scale(0.965);
 }
 
 .playbarSpace {
@@ -74,11 +82,8 @@
 	right: 0;
 	z-index: 2;
 	isolation: isolate;
-	height: calc(
-		var(--player-compact-height, 100px) +
-		(100dvh - var(--player-compact-height, 100px)) *
-		var(--player-open-progress, 0)
-	);
+	height: 100dvh;
+	transform: translateY(calc(100dvh - var(--player-compact-height, 100px)));
 	background-color: var(--color-panel-solid, rgb(17 17 17 / 0.78));
 	transition: background-color 0.18s 0.24s ease-out;
 
@@ -97,6 +102,7 @@
 	}
 
 	&.expanded {
+		transform: translateY(0);
 		background-color: #111;
 		transition: background-color 0.16s ease-out;
 		&::before {

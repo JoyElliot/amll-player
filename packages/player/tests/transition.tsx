@@ -203,6 +203,12 @@ function TestControls() {
 			setOpen(false);
 			await settle();
 			check(page().inert, "关闭页面不可交互");
+			const closedBeforeFocus = sheet().getBoundingClientRect();
+			button().scrollIntoView({ block: "center", inline: "nearest" });
+			check(
+				near(sheet().getBoundingClientRect(), closedBeforeFocus),
+				"底栏聚焦或滚入视图不会滚动整张卡片",
+			);
 			const nativeCover = cover();
 			const nativeVideo = nativeCover.querySelector("video");
 			button().focus();
@@ -215,6 +221,11 @@ function TestControls() {
 			const closedSheet = sheet().getBoundingClientRect();
 			const openedAt = performance.now();
 			flushSync(() => button().click());
+			const coverLayoutSize = [
+				nativeCover.offsetWidth,
+				nativeCover.offsetHeight,
+			];
+			const sheetLayoutHeight = sheet().offsetHeight;
 			const fullInfoRect = fullInfo().getBoundingClientRect();
 			path = {
 				start: sourceInfoRect,
@@ -272,6 +283,12 @@ function TestControls() {
 				const movingCover = nativeCover.getBoundingClientRect();
 				const movingInfo = info().getBoundingClientRect();
 				const targetInfo = fullInfo().getBoundingClientRect();
+				check(
+					sheet().offsetHeight === sheetLayoutHeight &&
+						nativeCover.offsetWidth === coverLayoutSize[0] &&
+						nativeCover.offsetHeight === coverLayoutSize[1],
+					"卡片和封面保持布局尺寸，以变换完成拉起和缩放",
+				);
 				const deltaX = targetInfo.left - sourceInfoRect.left;
 				const deltaY =
 					targetInfo.top -
@@ -293,7 +310,7 @@ function TestControls() {
 				);
 				check(
 					(closedSheet.top - movingSheet.top) / closedSheet.top < 0.47,
-					"起步曲线放缓，未改变总时长",
+					`起步曲线放缓，未改变总时长（${Math.round(performance.now() - openedAt)}ms，${((closedSheet.top - movingSheet.top) / closedSheet.top).toFixed(3)}）`,
 				);
 				const textProgress =
 					((movingInfo.left - sourceInfoRect.left) * deltaX +
@@ -343,7 +360,9 @@ function TestControls() {
 					store.set(musicPlayingAtom, false);
 				});
 			}
-			await settle();
+			// A layout change starts the library's separate cover spring. The sheet
+			// finishes first; the cover can briefly correct its moving destination.
+			await settle(changeDuringTransition ? 1200 : 650);
 			nativeCover.hidePopover = hidePopover;
 			nativeInfo.hidePopover = hideInfo;
 			if (!reduced && !changeDuringTransition) {
@@ -511,6 +530,11 @@ function TestControls() {
 			check(
 				document.querySelectorAll(":popover-open").length === 0,
 				"无残留顶层封面",
+			);
+			check(
+				sheet().getAnimations().length === 0 &&
+					info().getAnimations().length === 0,
+				"交接后清理卡片与文字的浏览器动画",
 			);
 			setOpen(true);
 			await settle(90);

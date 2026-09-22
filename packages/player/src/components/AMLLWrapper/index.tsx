@@ -100,6 +100,7 @@ export const AMLLWrapper: FC = () => {
 									className: sharedCoverClassName,
 								}}
 								controlThumbProps={{
+									id: "amll-player-control-thumb",
 									className: styles.controlThumb,
 									buttonRef: collapseButtonRef,
 									buttonLabel: t("amll.closePlayer", "收起播放页"),

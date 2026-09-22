@@ -34,8 +34,10 @@
 	transition: opacity 0.18s 0.32s cubic-bezier(0.32, 0.72, 0.35, 1);
 	margin: auto;
 	max-width: 800px;
+	transform: translateY(calc(var(--player-compact-height, 100px) - 100dvh));
 
 	&.expanded {
+		transform: translateY(0);
 		opacity: 0;
 		pointer-events: none;
 		transition: opacity 0.16s cubic-bezier(0.32, 0.72, 0.35, 1);
@@ -70,6 +72,7 @@
 	pointer-events: none;
 	max-width: none;
 	max-height: none;
+	transform-origin: top left;
 
 	& > :first-child {
 		font-weight: var(--player-info-name-weight);

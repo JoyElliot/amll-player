@@ -49,8 +49,10 @@ export const AppContainer: FC<
 			className={classNames(
 				styles.appContainer,
 				hasPlayer && styles.presentation,
+				playbarExpanded && styles.expanded,
 			)}
 		>
+			{hasPlayer && <div className={styles.dimmer} data-player-dimmer="" />}
 			<div
 				className={styles.sidebar}
 				style={{ width: `${sidebarWidth}px` }}
@@ -76,6 +78,7 @@ export const AppContainer: FC<
 			/>
 			<div
 				className={styles.main}
+				data-player-background=""
 				inert={playbarExpanded}
 				aria-hidden={playbarExpanded}
 			>

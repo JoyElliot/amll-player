@@ -27,18 +27,20 @@
 	bottom: 0;
 	width: 100%;
 	height: 100dvh;
-	transform: translateY(
-		calc(var(--player-sheet-top, 100dvh) * (1 - var(--player-open-progress, 0)))
-	);
 }
 
 .controlThumb {
-	transform: translateY(
-		calc(
-			(20px - var(--player-sheet-top, 100dvh)) *
-			(1 - var(--player-open-progress, 0))
-		)
-	);
+	transform: translateY(calc(20px - var(--player-sheet-top, 100dvh)));
+}
+
+.opened .controlThumb {
+	transform: translateY(0);
+}
+
+:global(#amll-lyric-player-wrapper [data-player-info-motion]) {
+	transition: none;
+	transform: none;
+	opacity: 1;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -10,6 +10,7 @@
 	pointer-events: none;
 	max-width: none;
 	max-height: none;
+	transform-origin: top left;
 
 	&::before {
 		content: "";
@@ -17,7 +18,7 @@
 		inset: 0;
 		border-radius: 6px;
 		box-shadow: inset 0 0 0 1px #504e4e25;
-		opacity: var(--player-cover-compact, 0);
+		opacity: 0;
 		z-index: 1;
 	}
 

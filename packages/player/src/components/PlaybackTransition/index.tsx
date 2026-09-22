@@ -16,7 +16,7 @@ import {
 	useState,
 } from "react";
 import styles from "./index.module.css";
-import { createInfoMotion, type InfoPose } from "./info-motion";
+import { type Animate, createInfoMotion, type InfoPose } from "./info-motion";
 
 type Rect = Pick<DOMRect, "left" | "top" | "width" | "height">;
 type Presentation = {
@@ -47,12 +47,13 @@ export function usePlaybackPresentation() {
 const mix = (from: number, to: number, progress: number) =>
 	from + (to - from) * progress;
 const sheetEase = cubicBezier(0.32, 0.72, 0.35, 1);
-const mixRect = (from: Rect, to: Rect, progress: number): Rect => ({
-	left: mix(from.left, to.left, progress),
-	top: mix(from.top, to.top, progress),
-	width: mix(from.width, to.width, progress),
-	height: mix(from.height, to.height, progress),
-});
+const sheetEasing = "cubic-bezier(.32,.72,.35,1)";
+const near = (a: Rect, b: Rect) =>
+	Math.max(
+		...(["left", "top", "width", "height"] as const).map((key) =>
+			Math.abs(a[key] - b[key]),
+		),
+	) < 1;
 
 /** One presentation timeline. The playback atom remains the only requested state. */
 export function PlaybackTransition({ children }: PropsWithChildren) {
@@ -79,6 +80,7 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 	const progress = useRef(opened ? 1 : 0);
 	const displayedCover = useRef<Rect | null>(null);
 	const displayedInfo = useRef<InfoPose | null>(null);
+	const displayedFilter = useRef<string | null>(null);
 	const previousFocus = useRef<HTMLElement | null>(null);
 	const wasOpened = useRef(false);
 
@@ -148,80 +150,134 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 		const bar = barRef.current;
 		const compact = compactCoverRef.current;
 		const compactButton = openButtonRef.current;
-		if (!app || !page || !bar || !compact) return;
+		const sheet = app?.querySelector<HTMLElement>("#amll-player-sheet");
+		const background = app?.querySelector<HTMLElement>(
+			"[data-player-background]",
+		);
+		const dimmer = app?.querySelector<HTMLElement>("[data-player-dimmer]");
+		const thumb = page?.querySelector<HTMLElement>(
+			"#amll-player-control-thumb",
+		);
+		if (!app || !page || !bar || !compact || !sheet) return;
 
 		const target = opened ? 1 : 0;
-		let startProgress = progress.current;
-		let startTime = performance.now();
-		let startCover = displayedCover.current;
-		let animationFrame = 0;
-		let material: Animation | undefined;
-		let cancelVideoHandoff: (() => void) | undefined;
+		let disposed = false;
 		let promoted = false;
+		let moving = false;
+		let refreshFrame = 0;
+		let generation = 0;
+		let startProgress = progress.current;
+		let master: Animation | undefined;
+		let waitingPose: Animation | undefined;
+		let animations: Animation[] = [];
 		let infoMotion: ReturnType<typeof createInfoMotion>;
-		const nativeRect = cover?.getBoundingClientRect();
-		let nativeTransform = new DOMMatrixReadOnly();
+		let cancelVideoHandoff: (() => void) | undefined;
 
-		const paintPage = (value: number) => {
-			app.style.setProperty("--player-open-progress", `${value}`);
-			page.style.setProperty("--player-open-progress", `${value}`);
+		const measurePage = () => {
 			const compactHeight = bar.getBoundingClientRect().height + 1;
 			app.style.setProperty("--player-compact-height", `${compactHeight}px`);
 			const barTop = window.innerHeight - compactHeight;
 			page.style.setProperty("--player-sheet-top", `${barTop}px`);
-			page.dataset.phase =
-				value === 0 && !opened ? "closed" : value === 1 ? "open" : "moving";
+			return barTop;
 		};
-
+		const capture = () => {
+			if (!moving || !master) return;
+			const eased = master.effect?.getComputedTiming().progress ?? 0;
+			progress.current = mix(startProgress, target, eased);
+			if (promoted && cover) {
+				displayedCover.current = cover.getBoundingClientRect();
+				displayedFilter.current = getComputedStyle(cover).filter;
+			}
+			if (infoMotion) displayedInfo.current = infoMotion.capture();
+		};
 		const restoreCover = () => {
-			material?.cancel();
 			if (!cover || !promoted) return;
 			cover.style.transition = "none";
 			if (cover.matches(":popover-open")) cover.hidePopover();
+			waitingPose?.cancel();
+			waitingPose = undefined;
+			for (const animation of animations)
+				if ((animation.effect as KeyframeEffect | null)?.target === cover)
+					animation.cancel();
 			cover.removeAttribute("popover");
-			for (const name of [
+			for (const key of [
 				"left",
 				"top",
 				"width",
 				"height",
 				"mask-image",
 				"mask-composite",
-				"--player-cover-compact",
 				"transform",
-			]) {
-				cover.style.removeProperty(name);
-			}
-			// Apply the native pose before re-enabling the Cover's own transitions.
+				"border-radius",
+				"overflow",
+			])
+				cover.style.removeProperty(key);
+			// The library owns the native pause transform again after the handoff.
 			cover.getBoundingClientRect();
 			cover.style.removeProperty("transition");
 			compactButton?.style.removeProperty("opacity");
 			promoted = false;
 		};
-
+		const stop = () => {
+			cancelVideoHandoff?.();
+			cancelVideoHandoff = undefined;
+			infoMotion?.restore();
+			infoMotion = undefined;
+			restoreCover();
+			for (const animation of animations) animation.cancel();
+			animations = [];
+			master = undefined;
+		};
 		const finish = () => {
+			moving = false;
 			progress.current = target;
-			paintPage(target);
+			displayedCover.current =
+				promoted && cover ? cover.getBoundingClientRect() : null;
+			page.dataset.phase = opened ? "open" : "closed";
 			infoMotion?.restore();
 			infoMotion = undefined;
 			displayedInfo.current = null;
+			displayedFilter.current = null;
+			// Only the cover may need to wait for video readiness. Release the page
+			// transforms now so its settled layout can respond to viewport changes.
+			for (const animation of animations)
+				if ((animation.effect as KeyframeEffect | null)?.target !== cover)
+					animation.cancel();
+			master = undefined;
 			if (opened && document.activeElement === page)
 				collapseButton?.focus({ preventScroll: true });
 			const release = () => {
 				cancelVideoHandoff?.();
+				cancelVideoHandoff = undefined;
 				restoreCover();
+				for (const animation of animations) animation.cancel();
+				animations = [];
+				master = undefined;
 				displayedCover.current = null;
 			};
 			const video = videoRef.current;
 			const thumbnail = compactVideoRef.current;
 			if (target === 0) video?.pause();
+			// The immediate path still transfers a ready frame, but has no visible
+			// overlay to keep alive while waiting for media events.
 			if (
+				target === 0 &&
+				!promoted &&
+				video &&
+				thumbnail &&
+				video.readyState >= 2 &&
+				thumbnail.readyState >= 1 &&
+				!thumbnail.error
+			)
+				thumbnail.currentTime = video.currentTime;
+			if (
+				promoted &&
 				target === 0 &&
 				video &&
 				thumbnail &&
 				video.readyState >= 2 &&
 				!thumbnail.error
 			) {
-				// Keep the real cover visible until the compact video has the same frame.
 				const seek = () => {
 					if (Math.abs(thumbnail.currentTime - video.currentTime) >= 0.001)
 						thumbnail.currentTime = video.currentTime;
@@ -249,143 +305,217 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 			} else release();
 		};
 
-		// Responsive layouts replace their cover nodes in a layout effect.
-		// Retain the current pose until the new public refs arrive.
-		if (!cover || !coverFrame) return;
-		if (
-			reducedMotion ||
-			startProgress === target ||
-			typeof cover.showPopover !== "function"
-		) {
-			finish();
-			return () => cancelVideoHandoff?.();
-		}
+		const run = (duration = 500, corrections = 0) => {
+			if (disposed) return;
+			capture();
+			stop();
+			const runId = ++generation;
+			startProgress = progress.current;
+			const barTop = measurePage();
+			if (!cover || !coverFrame) return;
+			if (
+				reducedMotion ||
+				(corrections === 0 && startProgress === target) ||
+				typeof cover.showPopover !== "function"
+			) {
+				finish();
+				return;
+			}
 
-		const refreshNativeStyle = () => {
-			material?.cancel();
 			cover.style.transition = "none";
-			cover.style.removeProperty("transform");
 			const nativeStyle = getComputedStyle(cover);
-			nativeTransform = new DOMMatrixReadOnly(nativeStyle.transform);
-			material = cover.animate(
-				[{ filter: "none" }, { filter: nativeStyle.filter }],
-				{
-					duration: 1000,
-					fill: "both",
-				},
-			);
-			material.pause();
-			material.currentTime = progress.current * 1000;
-			cover.style.transform = "none";
-		};
-		refreshNativeStyle();
-		if (!opened) videoRef.current?.pause();
-		cover.setAttribute("popover", "manual");
-		cover.showPopover();
-		if (compactButton) compactButton.style.opacity = "0";
-		promoted = true;
-		if (compactInfoRef.current && compactInfoSlotRef.current && fullInfo) {
-			infoMotion = createInfoMotion(
-				compactInfoRef.current,
-				compactInfoSlotRef.current,
-				fullInfo,
-				page,
-				opened,
-				displayedInfo.current,
-			);
-		}
-
-		const readTarget = (): Rect => {
-			if (!opened) return compact.getBoundingClientRect();
+			const nativeTransform = new DOMMatrixReadOnly(nativeStyle.transform);
+			const nativeFilter = nativeStyle.filter;
+			const coverRect = cover.getBoundingClientRect();
+			const nativeRect = {
+				left: coverRect.left,
+				top: coverRect.top - page.getBoundingClientRect().top,
+				width: coverRect.width,
+				height: coverRect.height,
+			};
 			const frame = coverFrame.getBoundingClientRect();
-			// The anchor stays in layout while the real cover paints in the top layer.
-			return {
-				left: frame.left + (frame.width * (1 - nativeTransform.a)) / 2,
-				top:
-					frame.top -
-					page.getBoundingClientRect().top +
-					(frame.height * (1 - nativeTransform.d)) / 2,
-				width: frame.width * nativeTransform.a,
-				height: frame.height * nativeTransform.d,
+			const mask = getComputedStyle(coverFrame).maskImage;
+			const readTarget = (): Rect => {
+				if (!opened) return compact.getBoundingClientRect();
+				const anchor = coverFrame.getBoundingClientRect();
+				return {
+					left: anchor.left + (anchor.width * (1 - nativeTransform.a)) / 2,
+					top:
+						anchor.top -
+						page.getBoundingClientRect().top +
+						(anchor.height * (1 - nativeTransform.d)) / 2,
+					width: anchor.width * nativeTransform.a,
+					height: anchor.height * nativeTransform.d,
+				};
+			};
+			const start =
+				displayedCover.current ??
+				(opened ? compact.getBoundingClientRect() : nativeRect);
+			const end = readTarget();
+			const baseWidth = Math.max(1, frame.width);
+			const baseHeight = Math.max(1, frame.height);
+			const transform = (rect: Rect) =>
+				`translate(${rect.left}px, ${rect.top}px) scale(${rect.width / baseWidth}, ${rect.height / baseHeight})`;
+			const timelineStart = performance.now();
+			const animate: Animate = (node, frames, options = {}) => {
+				const animation = node.animate(frames, {
+					duration,
+					easing: sheetEasing,
+					fill: "both",
+					...options,
+				});
+				animation.startTime = timelineStart;
+				animations.push(animation);
+				return animation;
+			};
+
+			if (!opened) videoRef.current?.pause();
+			cover.setAttribute("popover", "manual");
+			cover.showPopover();
+			promoted = true;
+			if (compactButton) compactButton.style.opacity = "0";
+			Object.assign(cover.style, {
+				left: "0px",
+				top: "0px",
+				width: `${baseWidth}px`,
+				height: `${baseHeight}px`,
+				overflow: "hidden",
+			});
+			animate(cover, [
+				{
+					transform: transform(start),
+					filter: displayedFilter.current ?? (opened ? "none" : nativeFilter),
+					borderRadius: `${((6 * baseWidth) / Math.max(1, start.width)) * (1 - startProgress)}px`,
+				},
+				{
+					transform: transform(end),
+					filter: opened ? nativeFilter : "none",
+					borderRadius: `${opened ? 0 : (6 * baseWidth) / Math.max(1, end.width)}px`,
+				},
+			]);
+			animate(
+				cover,
+				[{ opacity: 1 - startProgress }, { opacity: 1 - target }],
+				{ pseudoElement: "::before" },
+			);
+			if (mask !== "none") {
+				cover.style.maskComposite = "add";
+				animate(
+					cover,
+					Array.from({ length: 61 }, (_, i) => {
+						const alpha = 1 - mix(startProgress, target, sheetEase(i / 60));
+						return {
+							offset: i / 60,
+							maskImage: `${mask}, linear-gradient(rgb(0 0 0 / ${alpha}), rgb(0 0 0 / ${alpha}))`,
+						};
+					}),
+					{ easing: "linear" },
+				);
+			}
+
+			const source = compactInfoRef.current;
+			const slot = compactInfoSlotRef.current;
+			if (source && slot && fullInfo) {
+				infoMotion = createInfoMotion(
+					source,
+					slot,
+					fullInfo,
+					page,
+					opened,
+					displayedInfo.current,
+				);
+				infoMotion?.play(animate, sheetEase, startProgress);
+			}
+			const positions = [startProgress, target];
+			master = animate(
+				sheet,
+				positions.map((p) => ({
+					transform: `translateY(${barTop * (1 - p)}px)`,
+				})),
+			);
+			animate(
+				bar,
+				positions.map((p) => ({
+					transform: `translateY(${-barTop * (1 - p)}px)`,
+				})),
+			);
+			if (background)
+				animate(
+					background,
+					positions.map((p) => ({ transform: `scale(${1 - p * 0.035})` })),
+				);
+			if (dimmer)
+				animate(
+					dimmer,
+					positions.map((p) => ({ opacity: p * 0.35 })),
+				);
+			if (thumb)
+				animate(
+					thumb,
+					positions.map((p) => ({
+						transform: `translateY(${(20 - barTop) * (1 - p)}px)`,
+					})),
+				);
+			moving = true;
+			page.dataset.phase = "moving";
+			master.onfinish = () => {
+				if (disposed || generation !== runId) return;
+				// Library layout springs can outlive our timeline. Only remeasure at
+				// handoff, with bounded short corrections instead of per-frame polling.
+				if (
+					corrections < 4 &&
+					(!near(cover.getBoundingClientRect(), readTarget()) ||
+						(infoMotion &&
+							!near(infoMotion.capture(), infoMotion.readTarget())))
+				) {
+					run(120, corrections + 1);
+					return;
+				}
+				finish();
 			};
 		};
-
-		if (!startCover) {
-			startCover = opened
-				? compact.getBoundingClientRect()
-				: (nativeRect ?? null);
-		}
-
-		const paint = (elapsed = 0) => {
-			const value = progress.current;
-			paintPage(value);
-			if (!promoted || !startCover) return;
-			const fraction =
-				target === startProgress
-					? 1
-					: (value - startProgress) / (target - startProgress);
-			const rect = mixRect(startCover, readTarget(), fraction);
-			if (infoMotion)
-				displayedInfo.current = infoMotion.paint(fraction, value, elapsed);
-			displayedCover.current = rect;
-			Object.assign(cover.style, {
-				left: `${rect.left}px`,
-				top: `${rect.top}px`,
-				width: `${rect.width}px`,
-				height: `${rect.height}px`,
-			});
-			cover.style.setProperty("--player-cover-compact", `${1 - value}`);
-			if (material) material.currentTime = value * 1000;
-			const mask = getComputedStyle(coverFrame).maskImage;
-			if (mask !== "none") {
-				const solid = `linear-gradient(rgb(0 0 0 / ${1 - value}), rgb(0 0 0 / ${1 - value}))`;
-				cover.style.maskImage = `${mask}, ${solid}`;
-				cover.style.maskComposite = "add";
-			} else {
-				cover.style.removeProperty("mask-image");
-				cover.style.removeProperty("mask-composite");
-			}
-		};
-
-		const tick = (now: number) => {
-			// Keep the geometry aligned with the bar's delayed 320–500ms reveal,
-			// including an interrupted transition that starts between endpoints.
-			const duration = 500;
-			const elapsed = Math.min(1, (now - startTime) / duration);
-			const eased = sheetEase(elapsed);
-			progress.current = mix(startProgress, target, eased);
-			paint(elapsed);
-			if (elapsed < 1) animationFrame = requestAnimationFrame(tick);
-			else finish();
-		};
 		const resize = () => {
-			if (!promoted) return;
-			startProgress = progress.current;
-			startCover = displayedCover.current;
-			startTime = performance.now();
-			infoMotion?.rebase();
-			refreshNativeStyle();
-			paint();
+			if (refreshFrame) return;
+			refreshFrame = requestAnimationFrame(() => {
+				refreshFrame = 0;
+				if (moving) run();
+				else {
+					measurePage();
+					if (promoted && cover && !opened) {
+						const rect = compact.getBoundingClientRect();
+						displayedCover.current = rect;
+						const width = Number.parseFloat(cover.style.width);
+						const height = Number.parseFloat(cover.style.height);
+						waitingPose?.cancel();
+						waitingPose = cover.animate(
+							[
+								{
+									transform: `translate(${rect.left}px, ${rect.top}px) scale(${rect.width / width}, ${rect.height / height})`,
+								},
+							],
+							{ duration: 0, fill: "both" },
+						);
+					}
+				}
+			});
 		};
-		// Pause/resume changes the native Cover class while our inline pose is active.
 		const appearanceObserver = new MutationObserver(resize);
-		appearanceObserver.observe(cover, {
-			attributes: true,
-			attributeFilter: ["class"],
-		});
-
-		paint();
-		animationFrame = requestAnimationFrame(tick);
+		if (cover)
+			appearanceObserver.observe(cover, {
+				attributes: true,
+				attributeFilter: ["class"],
+			});
+		run();
 		window.addEventListener("resize", resize);
 		window.visualViewport?.addEventListener("resize", resize);
 		return () => {
-			cancelAnimationFrame(animationFrame);
-			cancelVideoHandoff?.();
-			infoMotion?.restore();
+			capture();
+			disposed = true;
+			cancelAnimationFrame(refreshFrame);
 			appearanceObserver.disconnect();
 			window.removeEventListener("resize", resize);
 			window.visualViewport?.removeEventListener("resize", resize);
-			restoreCover();
+			stop();
 		};
 	}, [
 		opened,
