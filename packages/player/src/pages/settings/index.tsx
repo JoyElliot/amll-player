@@ -331,6 +331,7 @@ export const Component: FC = () => {
 				style={{
 					height: "100%",
 					padding: "var(--space-4)",
+					paddingBottom: 0,
 					minHeight: 0,
 				}}
 			>
