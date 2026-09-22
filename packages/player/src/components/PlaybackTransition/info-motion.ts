@@ -62,8 +62,10 @@ export function createInfoMotion(
 	return {
 		paint(fraction: number, progress: number) {
 			const target = opening ? full() : compact();
-			// Let the cover lift first; keep the text on its line and finish together.
-			const travel = opening ? fraction * fraction : fraction;
+			// Reverse the same spacing on close so the text clears the descending cover.
+			const travel = opening
+				? fraction * fraction
+				: 1 - (1 - fraction) * (1 - fraction);
 			current = {
 				left: mix(start.left, target.left, travel),
 				top: mix(start.top, target.top, travel),

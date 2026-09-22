@@ -413,7 +413,22 @@ function TestControls() {
 					"收起从当前全屏位置开始",
 				);
 			if (!reduced) {
-				await settle(160);
+				await settle(80);
+				const returningInfo = info().getBoundingClientRect();
+				const deltaX = path.end.left - path.start.left;
+				const deltaY = path.end.top - path.start.top;
+				const textProgress =
+					((returningInfo.left - path.start.left) * deltaX +
+						(returningInfo.top - path.start.top) * deltaY) /
+					(deltaX * deltaX + deltaY * deltaY);
+				const sheetProgress =
+					(sheet().getBoundingClientRect().top - fullSheet.top) /
+					(closedSheet.top - fullSheet.top);
+				check(
+					textProgress > sheetProgress * 1.35 && textProgress < 1,
+					"收起反向应用错峰，文字先离开下落封面的路径",
+				);
+				await settle(80);
 				check(
 					Number(getComputedStyle(bar()).opacity) < 0.01,
 					"收起前段底栏控件保持隐藏",
