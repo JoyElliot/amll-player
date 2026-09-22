@@ -148,9 +148,10 @@ function TestControls() {
 		const info = () => document.getElementById("amll-compact-info")!;
 		const fullInfo = () => document.getElementById("amll-full-info")!;
 		type Point = { left: number; top: number };
-		let path: { start: Point; end: Point } | undefined;
+		let path: { start: Point; end: Point; linear?: boolean } | undefined;
 		let pathError = 0;
 		let motionSamples = 0;
+		let lastPoint: Point | undefined;
 		const settle = (ms = 650) =>
 			new Promise<void>((resolve) => {
 				const start = performance.now();
@@ -160,7 +161,18 @@ function TestControls() {
 						const dx = path.end.left - path.start.left;
 						const dy = path.end.top - path.start.top;
 						const length = Math.hypot(dx, dy);
-						if (length > 1) {
+						if (path.linear === false) {
+							for (const key of ["left", "top"] as const) {
+								const direction = Math.sign(path.end[key] - path.start[key]);
+								pathError = Math.max(
+									pathError,
+									Math.min(path.start[key], path.end[key]) - text[key],
+									text[key] - Math.max(path.start[key], path.end[key]),
+									lastPoint ? direction * (lastPoint[key] - text[key]) : 0,
+								);
+							}
+							lastPoint = text;
+						} else if (length > 1) {
 							const x = text.left - path.start.left;
 							const y = text.top - path.start.top;
 							const along = (x * dx + y * dy) / length;
@@ -235,6 +247,7 @@ function TestControls() {
 			let handoff: { before: DOMRect; after: DOMRect } | undefined;
 			let infoHandoff: { before: DOMRect; after: DOMRect } | undefined;
 			let openDuration = 0;
+			let closeDuration = 0;
 			const nativeInfo = info();
 			const hideInfo = nativeInfo.hidePopover;
 			nativeInfo.hidePopover = () => {
@@ -381,7 +394,11 @@ function TestControls() {
 			);
 			check(button().closest("[inert]") !== null, "展开时底栏不可聚焦或点击");
 			const endRect = nativeCover.getBoundingClientRect();
-			path = { start: fullInfo().getBoundingClientRect(), end: sourceInfoRect };
+			path = {
+				start: fullInfo().getBoundingClientRect(),
+				end: sourceInfoRect,
+				linear: false,
+			};
 			if (nativeVideo && !reduced) {
 				// Hold only the media-ready boundary so resize during handoff is deterministic.
 				const thumbnail = button().querySelector("video")!;
@@ -402,6 +419,12 @@ function TestControls() {
 			}
 			pathError = 0;
 			motionSamples = 0;
+			lastPoint = undefined;
+			const closedAt = performance.now();
+			nativeInfo.hidePopover = () => {
+				closeDuration = performance.now() - closedAt;
+				hideInfo.call(nativeInfo);
+			};
 			flushSync(() =>
 				document
 					.querySelector<HTMLButtonElement>("[aria-label='收起播放页']")!
@@ -417,23 +440,28 @@ function TestControls() {
 				const returningInfo = info().getBoundingClientRect();
 				const deltaX = path.end.left - path.start.left;
 				const deltaY = path.end.top - path.start.top;
-				const textProgress =
-					((returningInfo.left - path.start.left) * deltaX +
-						(returningInfo.top - path.start.top) * deltaY) /
-					(deltaX * deltaX + deltaY * deltaY);
+				const horizontalProgress =
+					(returningInfo.left - path.start.left) / deltaX;
+				const verticalProgress = (returningInfo.top - path.start.top) / deltaY;
 				const sheetProgress =
 					(sheet().getBoundingClientRect().top - fullSheet.top) /
 					(closedSheet.top - fullSheet.top);
 				check(
-					textProgress > sheetProgress * 1.35 && textProgress < 1,
-					"收起反向应用错峰，文字先离开下落封面的路径",
+					Math.abs(deltaX) < 20 ||
+						Math.abs(deltaY) < 20 ||
+						(verticalProgress > horizontalProgress + 0.15 &&
+							horizontalProgress > 0 &&
+							horizontalProgress < sheetProgress),
+					"收起纵向先行，横向比卡片更缓地回位",
 				);
 				await settle(80);
 				check(
 					Number(getComputedStyle(bar()).opacity) < 0.01,
 					"收起前段底栏控件保持隐藏",
 				);
-				await settle(240);
+				await settle(160);
+				const tailStartLeft = info().getBoundingClientRect().left;
+				await settle(80);
 				check(
 					Number(getComputedStyle(bar()).opacity) > 0.25 &&
 						[
@@ -445,8 +473,17 @@ function TestControls() {
 						),
 					"收起后段底栏按钮下拉显现",
 				);
+				const tailEndLeft = info().getBoundingClientRect().left;
+				check(
+					Math.abs(deltaX) < 20 ||
+						(Math.sign(deltaX) * (tailEndLeft - tailStartLeft) >
+							Math.abs(deltaX) * 0.02 &&
+							Math.abs(tailEndLeft - path.end.left) > Math.abs(deltaX) * 0.01),
+					"收起400ms时横向仍在移动，没有提前停住",
+				);
 			}
 			await settle();
+			nativeInfo.hidePopover = hideInfo;
 			if (releaseVideoWait) {
 				const waiting = nativeCover.matches(":popover-open");
 				window.dispatchEvent(new Event("resize"));
@@ -455,11 +492,17 @@ function TestControls() {
 				releaseVideoWait = undefined;
 				check(waiting && textClean, "视频交接等待中 resize 不恢复文字临时样式");
 			}
-			if (!reduced)
+			if (!reduced) {
 				check(
 					motionSamples > 5 && pathError < 1,
-					`收起文字始终位于起终点线段（偏差 ${pathError.toFixed(2)}px）`,
+					`收起双轴单调回位，没有越界或绕行（误差 ${pathError.toFixed(2)}px）`,
 				);
+				check(
+					closeDuration >= 480 && closeDuration < 625,
+					`收起文字与卡片在500ms终点交接（实测 ${Math.round(closeDuration)}ms）`,
+				);
+			}
+			path = undefined;
 			check(
 				page().dataset.phase === "closed" && page().inert,
 				"收起终态与交互一致",

@@ -1,3 +1,5 @@
+import { cubicBezier } from "framer-motion";
+
 export type InfoPose = {
 	left: number;
 	top: number;
@@ -8,6 +10,7 @@ export type InfoPose = {
 };
 
 const mix = (a: number, b: number, t: number) => a + (b - a) * t;
+const returnHorizontalEase = cubicBezier(0.25, 0.1, 0.25, 1);
 
 /** Move the existing compact text; its slot and the full text keep their layout. */
 export function createInfoMotion(
@@ -60,19 +63,22 @@ export function createInfoMotion(
 	source.showPopover();
 
 	return {
-		paint(fraction: number, progress: number) {
+		paint(fraction: number, progress: number, elapsed: number) {
 			const target = opening ? full() : compact();
-			// Reverse the same spacing on close so the text clears the descending cover.
-			const travel = opening
+			// Use the raw clock horizontally so the return keeps moving into its tail.
+			const horizontal = opening
+				? fraction * fraction
+				: returnHorizontalEase(elapsed);
+			const vertical = opening
 				? fraction * fraction
 				: 1 - (1 - fraction) * (1 - fraction);
 			current = {
-				left: mix(start.left, target.left, travel),
-				top: mix(start.top, target.top, travel),
-				width: mix(start.width, target.width, travel),
-				height: mix(start.height, target.height, travel),
-				fontSize: mix(start.fontSize, target.fontSize, travel),
-				lineHeight: mix(start.lineHeight, target.lineHeight, travel),
+				left: mix(start.left, target.left, horizontal),
+				top: mix(start.top, target.top, vertical),
+				width: mix(start.width, target.width, horizontal),
+				height: mix(start.height, target.height, horizontal),
+				fontSize: mix(start.fontSize, target.fontSize, horizontal),
+				lineHeight: mix(start.lineHeight, target.lineHeight, horizontal),
 			};
 			Object.assign(source.style, {
 				left: `${current.left}px`,

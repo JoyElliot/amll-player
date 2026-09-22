@@ -316,7 +316,7 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 				: (nativeRect ?? null);
 		}
 
-		const paint = () => {
+		const paint = (elapsed = 0) => {
 			const value = progress.current;
 			paintPage(value);
 			if (!promoted || !startCover) return;
@@ -325,7 +325,8 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 					? 1
 					: (value - startProgress) / (target - startProgress);
 			const rect = mixRect(startCover, readTarget(), fraction);
-			if (infoMotion) displayedInfo.current = infoMotion.paint(fraction, value);
+			if (infoMotion)
+				displayedInfo.current = infoMotion.paint(fraction, value, elapsed);
 			displayedCover.current = rect;
 			Object.assign(cover.style, {
 				left: `${rect.left}px`,
@@ -353,7 +354,7 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 			const elapsed = Math.min(1, (now - startTime) / duration);
 			const eased = sheetEase(elapsed);
 			progress.current = mix(startProgress, target, eased);
-			paint();
+			paint(elapsed);
 			if (elapsed < 1) animationFrame = requestAnimationFrame(tick);
 			else finish();
 		};
