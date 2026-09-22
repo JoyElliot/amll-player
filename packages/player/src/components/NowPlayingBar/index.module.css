@@ -55,8 +55,8 @@
 }
 
 .metadataSlot {
-	/* Match MusicInfo before, during and after the shared-text handoff. */
-	font-size: var(--player-info-font-size, max(2vh, 1em));
+	/* Keep compact metadata independent of the fullscreen viewport size. */
+	font-size: 16px;
 	line-height: 1.25;
 	height: 2lh;
 	width: 100%;

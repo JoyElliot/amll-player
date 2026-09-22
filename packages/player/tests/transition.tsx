@@ -148,16 +148,16 @@ function TestControls() {
 		const bar = () => document.getElementById("amll-now-playing-bar")!;
 		const info = () => document.getElementById("amll-compact-info")!;
 		const fullInfo = () => document.getElementById("amll-full-info")!;
-		const textAppearance = (root: HTMLElement) =>
+		const textAppearance = (root: HTMLElement, includeSize = true) =>
 			JSON.stringify(
 				[...root.children].map((row) => {
 					const style = getComputedStyle(row);
 					return {
 						text: row.textContent,
 						fontFamily: style.fontFamily,
-						fontSize: style.fontSize,
+						fontSize: includeSize ? style.fontSize : undefined,
 						fontWeight: style.fontWeight,
-						lineHeight: style.lineHeight,
+						lineHeight: includeSize ? style.lineHeight : undefined,
 						letterSpacing: style.letterSpacing,
 						opacity: style.opacity,
 						color: style.color,
@@ -224,8 +224,13 @@ function TestControls() {
 			await settle();
 			check(page().inert, "关闭页面不可交互");
 			check(
-				textAppearance(info()) === textAppearance(fullInfo()),
-				"底栏和全屏使用相同字体样式与歌手分隔",
+				getComputedStyle(info()).fontSize === "16px" &&
+					getComputedStyle(info()).lineHeight === "20px",
+				"底栏字号固定16px，行高固定20px",
+			);
+			check(
+				textAppearance(info(), false) === textAppearance(fullInfo(), false),
+				"底栏和全屏共用字体外观与歌手分隔，允许字号不同",
 			);
 			const closedBeforeFocus = sheet().getBoundingClientRect();
 			button().scrollIntoView({ block: "center", inline: "nearest" });
@@ -238,6 +243,9 @@ function TestControls() {
 			button().focus();
 			const sourceRect = button().getBoundingClientRect();
 			const sourceInfoRect = info().getBoundingClientRect();
+			const sourceFontSize = Number.parseFloat(
+				getComputedStyle(info()).fontSize,
+			);
 			const backdrop = document
 				.getElementById("outside-content-button")!
 				.closest("main")!.parentElement!;
@@ -310,8 +318,20 @@ function TestControls() {
 			if (!reduced) {
 				await settle(80);
 				check(
-					textAppearance(info()) === textAppearance(fullInfo()),
-					"展开途中字体和歌手分隔保持全屏样式",
+					textAppearance(info(), false) === textAppearance(fullInfo(), false),
+					"展开途中字重字距等外观与歌手分隔保持全屏样式",
+				);
+				const movingFontSize = Number.parseFloat(
+					getComputedStyle(info()).fontSize,
+				);
+				const fullFontSize = Number.parseFloat(
+					getComputedStyle(fullInfo()).fontSize,
+				);
+				check(
+					Math.abs(fullFontSize - sourceFontSize) < 0.01 ||
+						(movingFontSize > Math.min(sourceFontSize, fullFontSize) &&
+							movingFontSize < Math.max(sourceFontSize, fullFontSize)),
+					"展开途中字号连续变化，处于底栏与全屏尺寸之间",
 				);
 				const movingSheet = sheet().getBoundingClientRect();
 				const movingCover = nativeCover.getBoundingClientRect();
@@ -501,8 +521,8 @@ function TestControls() {
 				await settle(80);
 				const returningInfo = info().getBoundingClientRect();
 				check(
-					textAppearance(info()) === textAppearance(fullInfo()),
-					"收起途中字体和歌手分隔保持全屏样式",
+					textAppearance(info(), false) === textAppearance(fullInfo(), false),
+					"收起途中字重字距等外观与歌手分隔保持全屏样式",
 				);
 				const deltaX = path.end.left - path.start.left;
 				const deltaY = path.end.top - path.start.top;
@@ -570,7 +590,8 @@ function TestControls() {
 			}
 			path = undefined;
 			check(
-				textAppearance(info()) === textAppearance(fullInfo()) &&
+				textAppearance(info(), false) === textAppearance(fullInfo(), false) &&
+					getComputedStyle(info()).fontSize === "16px" &&
 					(reduced ||
 						(!!textHandoff && textHandoff.before === textHandoff.after)),
 				"收起交接前后文字样式和分隔不跳变",
@@ -593,6 +614,7 @@ function TestControls() {
 			await settle(90);
 			const beforeReverse = cover().getBoundingClientRect();
 			const infoBeforeReverse = info().getBoundingClientRect();
+			const fontBeforeReverse = getComputedStyle(info()).fontSize;
 			setOpen(false);
 			if (!reduced)
 				check(
@@ -604,13 +626,24 @@ function TestControls() {
 					near(info().getBoundingClientRect(), infoBeforeReverse),
 					"歌曲信息中途反向不跳位",
 				);
+			if (!reduced)
+				check(
+					getComputedStyle(info()).fontSize === fontBeforeReverse,
+					"歌曲信息中途反向保留当前字号",
+				);
 			await settle(60);
 			const beforeReopen = cover().getBoundingClientRect();
+			const fontBeforeReopen = getComputedStyle(info()).fontSize;
 			setOpen(true);
 			if (!reduced)
 				check(
 					near(cover().getBoundingClientRect(), beforeReopen),
 					"再次反向保持当前位置",
+				);
+			if (!reduced)
+				check(
+					getComputedStyle(info()).fontSize === fontBeforeReopen,
+					"再次反向保持当前字号",
 				);
 			if (!nativeVideo) flushSync(() => store.set(musicCoverAtom, covers[1]));
 			await settle();
@@ -627,11 +660,14 @@ function TestControls() {
 			check(
 				!info().hasAttribute("popover") &&
 					!info().style.left &&
+					!info().style.fontSize &&
+					!info().style.lineHeight &&
 					!fullInfo().style.visibility,
 				"清理文字浮层和全屏信息隐藏状态",
 			);
 			check(
-				textAppearance(info()) === textAppearance(fullInfo()),
+				textAppearance(info(), false) === textAppearance(fullInfo(), false) &&
+					getComputedStyle(info()).fontSize === "16px",
 				"中途反向后文字仍与全屏统一",
 			);
 			if (nativeVideo)

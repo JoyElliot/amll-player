@@ -5,6 +5,8 @@ export type InfoPose = {
 	top: number;
 	width: number;
 	height: number;
+	fontSize: number;
+	lineHeight: number;
 };
 
 export type Animate = (
@@ -27,11 +29,14 @@ export function createInfoMotion(
 ) {
 	const measure = (node: HTMLElement, full = false): InfoPose => {
 		const rect = node.getBoundingClientRect();
+		const style = getComputedStyle(node);
 		return {
 			left: rect.left,
 			top: rect.top - (full ? page.getBoundingClientRect().top : 0),
 			width: rect.width,
 			height: rect.height,
+			fontSize: Number.parseFloat(style.fontSize),
+			lineHeight: Number.parseFloat(style.lineHeight),
 		};
 	};
 	const compact = () => measure(slot);
@@ -78,6 +83,8 @@ export function createInfoMotion(
 					transform: `translate(${mix(start.left, target.left, horizontal)}px, ${mix(start.top, target.top, vertical)}px)`,
 					width: `${mix(start.width, target.width, horizontal)}px`,
 					height: `${mix(start.height, target.height, horizontal)}px`,
+					fontSize: `${mix(start.fontSize, target.fontSize, horizontal)}px`,
+					lineHeight: `${mix(start.lineHeight, target.lineHeight, horizontal)}px`,
 				});
 			}
 			animations.push(animate(source, frames, { easing: "linear" }));
