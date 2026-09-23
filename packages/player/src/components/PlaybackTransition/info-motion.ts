@@ -7,6 +7,7 @@ export type InfoPose = {
 	height: number;
 	fontSize: number;
 	lineHeight: number;
+	lighten: number;
 };
 
 export type Animate = (
@@ -27,6 +28,19 @@ export function createInfoMotion(
 	opening: boolean,
 	previous: InfoPose | null,
 ) {
+	// Fullscreen controls blend additively with the lyric background. A popover
+	// escapes those ancestors, so crossfade an additive copy over the normal text.
+	let fullLighten = 0;
+	for (
+		let node: HTMLElement | null = destination;
+		node !== page && node;
+		node = node.parentElement
+	) {
+		if (getComputedStyle(node).mixBlendMode === "plus-lighter") {
+			fullLighten = 1;
+			break;
+		}
+	}
 	const measure = (node: HTMLElement, full = false): InfoPose => {
 		const rect = node.getBoundingClientRect();
 		const style = getComputedStyle(node);
@@ -37,6 +51,7 @@ export function createInfoMotion(
 			height: rect.height,
 			fontSize: Number.parseFloat(style.fontSize),
 			lineHeight: Number.parseFloat(style.lineHeight),
+			lighten: full ? fullLighten : 0,
 		};
 	};
 	const compact = () => measure(slot);
@@ -63,6 +78,30 @@ export function createInfoMotion(
 	source.showPopover();
 	source.style.left = "0px";
 	source.style.top = "0px";
+	const lightText =
+		fullLighten || start.lighten
+			? (source.cloneNode(true) as HTMLDivElement)
+			: null;
+	if (lightText) {
+		lightText.removeAttribute("id");
+		lightText.inert = true;
+		lightText.style.mixBlendMode = "plus-lighter";
+		source.after(lightText);
+		lightText.showPopover();
+	}
+	// Track metadata arriving during the transition, even when the cover is unchanged.
+	const textObserver = lightText
+		? new MutationObserver(() => {
+				lightText.replaceChildren(
+					...Array.from(source.childNodes, (node) => node.cloneNode(true)),
+				);
+			})
+		: null;
+	textObserver?.observe(source, {
+		childList: true,
+		characterData: true,
+		subtree: true,
+	});
 
 	return {
 		play(animate: Animate, ease: (t: number) => number, isVertical: boolean) {
@@ -89,12 +128,30 @@ export function createInfoMotion(
 				});
 			}
 			animate(source, frames, isVertical ? {} : { easing: "linear" });
+			if (lightText) {
+				animate(lightText, frames, isVertical ? {} : { easing: "linear" });
+				animate(source, [
+					{ opacity: 1 - start.lighten },
+					{ opacity: 1 - target.lighten },
+				]);
+				animate(lightText, [
+					{ opacity: start.lighten },
+					{ opacity: target.lighten },
+				]);
+			}
 		},
-		capture: () => measure(source),
+		capture: () => ({
+			...measure(source),
+			lighten: lightText
+				? Number.parseFloat(getComputedStyle(lightText).opacity)
+				: 0,
+		}),
 		readTarget: () => (opening ? full() : compact()),
 		restore() {
 			// Keep the final pose through hidePopover; the controller cancels before paint.
+			textObserver?.disconnect();
 			if (source.matches(":popover-open")) source.hidePopover();
+			lightText?.remove();
 			source.removeAttribute("popover");
 			source.style.removeProperty("left");
 			source.style.removeProperty("top");
