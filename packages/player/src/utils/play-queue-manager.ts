@@ -155,22 +155,30 @@ export class PlayQueueManager {
 
 	//#region 队列设置
 	/**
-	 * 设置完整播放队列并开始播放第一首
+	 * 设置完整播放队列并开始播放，可指定原始歌单中的起播位置
 	 * @param songs - Song[]（来自后端 DB）
 	 * @param playlistId - 来源播放列表 ID（可选）
+	 * @param startIndex - 原始歌单中的起播索引，省略时按当前播放模式选择首曲
 	 */
-	setQueue(songs: Song[], playlistId?: number): void {
-		if (songs.length === 0) return;
+	setQueue(songs: Song[], playlistId?: number, startIndex?: number): void {
+		if (songs.length === 0 || (startIndex !== undefined && !songs[startIndex]))
+			return;
 		this.originalList = [...songs];
 		this.playlistId = playlistId ?? null;
 
 		if (this.shuffleActive) {
-			this.playList = shuffleArray(songs);
+			this.playList =
+				startIndex === undefined
+					? shuffleArray(songs)
+					: [
+							songs[startIndex],
+							...shuffleArray(songs.filter((_, index) => index !== startIndex)),
+						];
 		} else {
 			this.playList = [...songs];
 		}
 
-		this.playSongAt(0);
+		this.playSongAt(this.shuffleActive ? 0 : (startIndex ?? 0));
 	}
 
 	/**

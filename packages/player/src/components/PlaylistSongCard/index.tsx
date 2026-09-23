@@ -53,10 +53,14 @@ export const PlaylistSongCard = forwardRef<
 			key={`song-card-${songId}`}
 			loading={song.state === "loading"}
 			ref={ref}
-			onDoubleClick={() => onPlayList(songIndex)}
 		>
 			<Box py="1" style={style}>
-				<Card>
+				<Card
+					onDoubleClick={(event) => {
+						if ((event.target as HTMLElement).closest("button")) return;
+						onPlayList(songIndex);
+					}}
+				>
 					<Flex p="1" align="center" gap="4">
 						<Avatar size="5" fallback={<div />} src={songImgUrl} />
 						<Flex direction="column" justify="center" flexGrow="1" minWidth="0">
