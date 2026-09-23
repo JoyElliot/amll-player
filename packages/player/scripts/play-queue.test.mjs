@@ -75,3 +75,90 @@ test("shuffle without a selected index still chooses a shuffled first song", (t)
 		["b", "c", "d", "a"],
 	);
 });
+
+for (const shuffle of [false, true]) {
+	test(`play next moves an earlier queued item without restarting, shuffle=${shuffle}`, (t) => {
+		t.mock.method(Math, "random", () => 0);
+		const queue = new PlayQueueManager(createStore());
+		if (shuffle) queue.toggleShuffleOn();
+		queue.setQueue(songs);
+		queue.playAt(2);
+		const current = queue.getCurrentSong();
+		const earlier = queue.getPlayList()[0];
+		audio.mock.resetCalls();
+
+		queue.enqueueNext({ ...earlier, filePath: "stale.flac" });
+		assert.equal(queue.getCurrentSong(), current);
+		assert.equal(queue.getCurrentIndex(), 1);
+		assert.equal(queue.getPlayList()[2], earlier);
+		assert.equal(queue.getPlayList().length, songs.length);
+		assert.deepEqual(audio.mock.calls, []);
+		queue.advanceForAutoEnd();
+		assert.deepEqual(playRequests(), [earlier.id]);
+	});
+
+	test(`new songs enter the next position and actual tail, shuffle=${shuffle}`, () => {
+		const store = createStore();
+		const queue = new PlayQueueManager(store);
+		if (shuffle) queue.toggleShuffleOn();
+		queue.setQueue(songs, 42, 1);
+		const current = queue.getCurrentSong();
+		const next = { id: "next", filePath: "next.flac" };
+		const tail = { id: "tail", filePath: "tail.flac" };
+		audio.mock.resetCalls();
+
+		queue.enqueueNext(next);
+		queue.enqueueTail(tail);
+		assert.equal(queue.getCurrentSong(), current);
+		assert.equal(queue.getPlayList()[queue.getCurrentIndex() + 1], next);
+		assert.equal(queue.getPlayList().at(-1), tail);
+		assert.deepEqual(store.get(persistedQueueStateAtom).originalSongIds, [
+			"a",
+			"b",
+			"c",
+			"d",
+			"next",
+			"tail",
+		]);
+		assert.deepEqual(audio.mock.calls, []);
+		if (shuffle) {
+			queue.toggleShuffleOff();
+			assert.deepEqual(queue.getPlayList(), [...songs, next, tail]);
+			assert.equal(queue.getCurrentSong(), current);
+			assert.deepEqual(playRequests(), []);
+		}
+	});
+
+	test(`current song and repeated enqueues do not duplicate or restart, shuffle=${shuffle}`, () => {
+		const queue = new PlayQueueManager(createStore());
+		if (shuffle) queue.toggleShuffleOn();
+		queue.setQueue(songs, 42, 1);
+		const before = queue.getPlayList();
+		const current = queue.getCurrentSong();
+		audio.mock.resetCalls();
+
+		queue.enqueueNext(current);
+		queue.enqueueTail(current);
+		queue.enqueueTail(songs[2]);
+		assert.deepEqual(queue.getPlayList(), before);
+		queue.enqueueNext(songs[2]);
+		queue.enqueueNext(songs[2]);
+		assert.equal(queue.getPlayList().length, songs.length);
+		assert.equal(queue.getPlayList()[queue.getCurrentIndex() + 1], songs[2]);
+		assert.equal(queue.getCurrentSong(), current);
+		assert.deepEqual(audio.mock.calls, []);
+	});
+
+	for (const method of ["enqueueNext", "enqueueTail"]) {
+		test(`${method} on an empty queue starts the selected song once, shuffle=${shuffle}`, () => {
+			const queue = new PlayQueueManager(createStore());
+			if (shuffle) queue.toggleShuffleOn();
+			queue[method](songs[2]);
+			assert.deepEqual(queue.getPlayList(), [songs[2]]);
+			assert.equal(queue.getCurrentSong(), songs[2]);
+			assert.equal(queue.getCurrentIndex(), 0);
+			assert.equal(queue.isShuffleActive(), shuffle);
+			assert.deepEqual(playRequests(), ["c"]);
+		});
+	}
+}

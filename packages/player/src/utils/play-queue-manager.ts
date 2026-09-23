@@ -192,7 +192,7 @@ export class PlayQueueManager {
 	}
 
 	/**
-	 * 将歌曲添加到队尾
+	 * 导入歌曲到当前队列，保留随机模式下插到下一首的行为
 	 */
 	addToQueue(song: Song): void {
 		if (this.originalList.some((s) => s.id === song.id)) return;
@@ -207,6 +207,37 @@ export class PlayQueueManager {
 			this.playList.push(song);
 		}
 
+		this.syncToAtoms();
+	}
+
+	/** 下一首播放：移动已有歌曲，不重复添加或打断当前播放。 */
+	enqueueNext(song: Song): void {
+		if (this.playList.length === 0) {
+			this.replaceQueueAndPlay(song);
+			return;
+		}
+		if (this.getCurrentSong()?.id === song.id) return;
+
+		const index = this.findInPlayList(song.id);
+		if (index !== -1) {
+			[song] = this.playList.splice(index, 1);
+			if (index < this.currentIndex) this.currentIndex--;
+		} else {
+			this.originalList.push(song);
+		}
+		this.playList.splice(this.currentIndex + 1, 0, song);
+		this.syncToAtoms();
+	}
+
+	/** 添加到实际播放队尾（包括随机模式），已入队的歌曲保持原位。 */
+	enqueueTail(song: Song): void {
+		if (this.originalList.some((queued) => queued.id === song.id)) return;
+		if (this.playList.length === 0) {
+			this.replaceQueueAndPlay(song);
+			return;
+		}
+		this.originalList.push(song);
+		this.playList.push(song);
 		this.syncToAtoms();
 	}
 	//#endregion
