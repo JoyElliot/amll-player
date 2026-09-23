@@ -158,7 +158,8 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 		const thumb = page?.querySelector<HTMLElement>(
 			"#amll-player-control-thumb",
 		);
-		if (!app || !page || !bar || !compact || !sheet) return;
+		const layout = page?.querySelector<HTMLElement>("#amll-lyric-player");
+		if (!app || !page || !bar || !compact || !sheet || !layout) return;
 
 		const target = opened ? 1 : 0;
 		let disposed = false;
@@ -424,7 +425,12 @@ export function PlaybackTransition({ children }: PropsWithChildren) {
 					opened,
 					displayedInfo.current,
 				);
-				infoMotion?.play(animate, sheetEase);
+				const layoutRect = layout.getBoundingClientRect();
+				infoMotion?.play(
+					animate,
+					sheetEase,
+					layoutRect.width < layoutRect.height,
+				);
 			}
 			const positions = [startProgress, target];
 			master = animate(

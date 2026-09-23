@@ -65,10 +65,13 @@ export function createInfoMotion(
 	source.style.top = "0px";
 
 	return {
-		play(animate: Animate, ease: (t: number) => number) {
+		play(animate: Animate, ease: (t: number) => number, isVertical: boolean) {
 			const frames: Keyframe[] = [];
-			for (let i = 0; i <= 60; i++) {
-				const elapsed = i / 60;
+			// Vertical text shares the cover's easing between two endpoints. Only
+			// horizontal layouts need sampled timing to keep text clear of the cover.
+			const steps = isVertical ? 1 : 60;
+			for (let i = 0; i <= steps; i++) {
+				const elapsed = i / steps;
 				const fraction = ease(elapsed);
 				const horizontal = opening
 					? fraction * fraction
@@ -85,7 +88,7 @@ export function createInfoMotion(
 					lineHeight: `${mix(start.lineHeight, target.lineHeight, horizontal)}px`,
 				});
 			}
-			animate(source, frames, { easing: "linear" });
+			animate(source, frames, isVertical ? {} : { easing: "linear" });
 		},
 		capture: () => measure(source),
 		readTarget: () => (opening ? full() : compact()),
