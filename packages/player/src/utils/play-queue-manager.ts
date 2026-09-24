@@ -351,18 +351,23 @@ export class PlayQueueManager {
 
 	//#region 队列修改
 	/**
-	 * 从队列中移除一首歌
+	 * 从队列中移除歌曲的所有待播项，包括手动添加的重复项
 	 */
 	removeSong(songId: string): void {
-		const removeIndex = this.playList.findIndex((s) => s.id === songId);
-		if (removeIndex === -1) return;
+		const currentRemoved = this.getCurrentSong()?.id === songId;
+		let removedBeforeCurrent = 0;
+		const remaining = this.playList.filter((song, index) => {
+			if (song.id !== songId) return true;
+			if (index < this.currentIndex) removedBeforeCurrent++;
+			return false;
+		});
+		if (remaining.length === this.playList.length) return;
 
-		const [removedSong] = this.playList.splice(removeIndex, 1);
-		this.originalList.splice(this.originalList.indexOf(removedSong), 1);
+		this.originalList = this.originalList.filter((song) => song.id !== songId);
+		this.playList = remaining;
+		this.currentIndex -= removedBeforeCurrent;
 
-		if (removeIndex < this.currentIndex) {
-			this.currentIndex--;
-		} else if (removeIndex === this.currentIndex) {
+		if (currentRemoved) {
 			if (this.playList.length === 0) {
 				this.currentIndex = -1;
 			} else if (this.currentIndex >= this.playList.length) {
